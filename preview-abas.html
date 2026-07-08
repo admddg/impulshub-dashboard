@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ImpulsHub — Preview das abas</title>
+<style>
+:root{--petrol:#00313d;--mint:#94d2bd;--mint-deep:#5fae95;--ink:#0f1a1e;--ink-soft:#546069;--ink-faint:#8794a0;--line:#e5e9ec;--surface:#fff;--bg:#f5f7f7;--up:#1f7a63;--up-bg:#e6f2ee;--down:#b0432f;--down-bg:#f6ebe7;--radius:10px;--shadow:0 1px 2px rgba(0,49,61,.04),0 1px 3px rgba(0,49,61,.06)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+.topbar{background:var(--surface);border-bottom:1px solid var(--line)}
+.topbar-inner{display:flex;align-items:center;height:64px;gap:11px}
+.brand-name{font-weight:600;font-size:15px;color:var(--petrol)}
+.brand-client{font-size:13px;color:var(--ink-faint);border-left:1px solid var(--line);padding-left:12px}
+.dot{width:32px;height:32px;border-radius:7px;background:var(--petrol);display:grid;place-items:center}
+.dot svg{width:18px;height:18px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:24px 0 20px;overflow-x:auto}
+.tab{border:none;background:none;font:inherit;font-size:13.5px;color:var(--ink-soft);padding:12px 16px;cursor:pointer;border-bottom:2px solid transparent;font-weight:500}
+.tab.active{color:var(--petrol);border-bottom-color:var(--petrol);font-weight:600}
+.block{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;box-shadow:var(--shadow);margin-bottom:16px}
+.block-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px;gap:12px}
+.block-title{font-size:14px;font-weight:650;color:var(--petrol)}
+.block-sub{font-size:12px;color:var(--ink-faint)}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.sec{font-size:11px;font-weight:700;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.08em;margin:34px 0 12px;padding-top:20px;border-top:1px dashed var(--line)}
+/* funnel */
+.frow{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.flabel{width:130px;font-size:12.5px;color:var(--ink-soft);text-align:right}
+.ftrack{flex:1;height:34px;background:#f0f3f4;border-radius:6px;overflow:hidden}
+.fbar{height:100%;border-radius:6px;display:flex;align-items:center;padding-left:12px;color:#fff;font-size:13px;font-weight:650}
+.fconv{width:52px;font-size:11.5px;color:var(--ink-faint)}
+/* table */
+.table-wrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow-x:auto;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:12px 14px;font-size:11px;font-weight:600;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--line);background:#fafbfb;white-space:nowrap}
+td{padding:12px 14px;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:none}
+.r{text-align:right}
+.strong{font-weight:600;color:var(--petrol)}
+.muted{color:var(--ink-faint)}
+/* bars */
+.hbar{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.hbar-l{width:120px;font-size:12px;color:var(--ink-soft);text-align:right}
+.hbar-t{flex:1;height:22px;border-radius:4px}
+.hbar-v{font-size:12px;color:var(--ink-soft);width:50px}
+/* creatives */
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+.creative{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+.cimg{width:100%;aspect-ratio:1/1;display:grid;place-items:center;color:#7a8894;font-size:12px}
+.cbody{padding:14px}
+.chead{font-size:13px;font-weight:600;margin-bottom:10px;line-height:1.35}
+.cmet{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:12px;border-top:1px solid var(--line)}
+.ml{font-size:10px;color:var(--ink-faint);text-transform:uppercase;font-weight:600}
+.mv{font-size:15px;font-weight:650;color:var(--petrol);margin-top:2px}
+.note{font-size:12px;color:var(--ink-faint);margin:8px 4px 0}
+</style></head><body>
+
+<div class="topbar"><div class="wrap topbar-inner">
+  <span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="#94d2bd" stroke-width="2.2" stroke-linecap="round"><path d="M2 12h4l2-7 4 14 2-7h6"/></svg></span>
+  <span class="brand-name">ImpulsHub</span><span class="brand-client">Royal Odontologia</span>
+</div></div>
+
+<div class="wrap">
+
+  <!-- ============ ABA FUNIL ============ -->
+  <div class="sec">Aba: Funil</div>
+  <div class="tabs">
+    <span class="tab">Visão geral</span><span class="tab active">Funil</span><span class="tab">Canais</span><span class="tab">Meta Ads</span><span class="tab">Google Ads</span>
+  </div>
+  <div class="block">
+    <div class="block-head"><span class="block-title">Funil comercial</span><span class="block-sub">Do lead ao ganho · % = conversão da etapa anterior</span></div>
+    <div class="frow"><div class="flabel">Leads</div><div class="ftrack"><div class="fbar" style="width:100%;background:#00313d">118</div></div><div class="fconv"></div></div>
+    <div class="frow"><div class="flabel">Primeira conversa</div><div class="ftrack"><div class="fbar" style="width:54%;background:#256b62">64</div></div><div class="fconv">54%</div></div>
+    <div class="frow"><div class="flabel">Agendados</div><div class="ftrack"><div class="fbar" style="width:20%;background:#3f9079">24</div></div><div class="fconv">38%</div></div>
+    <div class="frow"><div class="flabel">Ganhos</div><div class="ftrack"><div class="fbar" style="width:6%;background:#5fae95;min-width:40px">7</div></div><div class="fconv">29%</div></div>
+  </div>
+  <div class="note">O gargalo é onde a queda percentual é maior — aqui, Agendado → Ganho (29%).</div>
+
+  <!-- ============ ABA CANAIS ============ -->
+  <div class="sec">Aba: Canais</div>
+  <div class="grid-2">
+    <div class="block">
+      <div class="block-head"><span class="block-title">Leads por canal</span></div>
+      <div class="hbar"><div class="hbar-l">Meta Ads</div><div class="hbar-t" style="width:78%;background:#00313d"></div><div class="hbar-v">82</div></div>
+      <div class="hbar"><div class="hbar-l">Google Ads</div><div class="hbar-t" style="width:22%;background:#5fae95"></div><div class="hbar-v">23</div></div>
+      <div class="hbar"><div class="hbar-l">WhatsApp Direto</div><div class="hbar-t" style="width:9%;background:#25a35a"></div><div class="hbar-v">9</div></div>
+      <div class="hbar"><div class="hbar-l">Indicação</div><div class="hbar-t" style="width:4%;background:#d4a05a"></div><div class="hbar-v">4</div></div>
+    </div>
+    <div class="block">
+      <div class="block-head"><span class="block-title">Receita por canal</span></div>
+      <div class="hbar"><div class="hbar-l">Meta Ads</div><div class="hbar-t" style="width:62%;background:#00313d"></div><div class="hbar-v">12k</div></div>
+      <div class="hbar"><div class="hbar-l">Indicação</div><div class="hbar-t" style="width:24%;background:#d4a05a"></div><div class="hbar-v">4,6k</div></div>
+      <div class="hbar"><div class="hbar-l">Google Ads</div><div class="hbar-t" style="width:14%;background:#5fae95"></div><div class="hbar-v">2,8k</div></div>
+      <div class="hbar"><div class="hbar-l">WhatsApp Direto</div><div class="hbar-t" style="width:0%;background:#25a35a"></div><div class="hbar-v muted">—</div></div>
+    </div>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Canal</th><th class="r">Investimento</th><th class="r">Leads</th><th class="r">Agend.</th><th class="r">Ganhos</th><th class="r">Receita</th><th class="r">CPL</th><th class="r">ROAS</th></tr></thead>
+    <tbody>
+      <tr><td class="strong">Meta Ads</td><td class="r">R$ 1.980</td><td class="r">82</td><td class="r">16</td><td class="r">4</td><td class="r">R$ 12.000</td><td class="r">R$ 24,15</td><td class="r">6,1x</td></tr>
+      <tr><td class="strong">Google Ads</td><td class="r">R$ 438</td><td class="r">23</td><td class="r">5</td><td class="r">1</td><td class="r">R$ 2.800</td><td class="r">R$ 19,04</td><td class="r">6,4x</td></tr>
+      <tr><td class="strong">WhatsApp Direto</td><td class="r muted">—</td><td class="r">9</td><td class="r">2</td><td class="r">0</td><td class="r muted">—</td><td class="r muted">—</td><td class="r muted">—</td></tr>
+      <tr><td class="strong">Indicação</td><td class="r muted">—</td><td class="r">4</td><td class="r">1</td><td class="r">2</td><td class="r">R$ 4.600</td><td class="r muted">—</td><td class="r muted">—</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note">Repara: Indicação traz poucos leads mas alta receita — canal de cliente que fecha. Meta traz volume.</div>
+
+  <!-- ============ ABA META - CRIATIVOS ============ -->
+  <div class="sec">Aba: Meta Ads › Criativos</div>
+  <div class="tabs" style="margin-top:0">
+    <span class="tab active">Campanhas</span><span class="tab">Criativos</span>
+  </div>
+  <div class="cgrid">
+    <div class="creative"><div class="cimg" style="background:linear-gradient(135deg,#c9e5db,#94d2bd)">imagem do anúncio</div><div class="cbody"><div class="chead">Transforme seu sorriso com implantes — avaliação gratuita</div><div class="cmet"><div><div class="ml">Investido</div><div class="mv">R$ 640</div></div><div><div class="ml">Leads</div><div class="mv">31</div></div><div><div class="ml">Ganhos</div><div class="mv">3</div></div><div><div class="ml">Receita</div><div class="mv">R$ 8.400</div></div></div></div></div>
+    <div class="creative"><div class="cimg" style="background:linear-gradient(135deg,#d4e8e0,#a8d8c6)">imagem do anúncio</div><div class="cbody"><div class="chead">Clareamento dental profissional a partir de 12x</div><div class="cmet"><div><div class="ml">Investido</div><div class="mv">R$ 520</div></div><div><div class="ml">Leads</div><div class="mv">28</div></div><div><div class="ml">Ganhos</div><div class="mv">1</div></div><div><div class="ml">Receita</div><div class="mv">R$ 1.200</div></div></div></div></div>
+    <div class="creative"><div class="cimg" style="background:#eef1f2;color:#8794a0">sem imagem</div><div class="cbody"><div class="chead">Aparelho ortodôntico invisível — agende sua consulta</div><div class="cmet"><div><div class="ml">Investido</div><div class="mv">R$ 410</div></div><div><div class="ml">Leads</div><div class="mv">19</div></div><div><div class="ml">Ganhos</div><div class="mv">0</div></div><div><div class="ml">Receita</div><div class="mv">—</div></div></div></div></div>
+  </div>
+  <div class="note">O 3º criativo gera leads mas nenhuma venda — "bonito que não fecha". O 1º é o que merece mais verba.</div>
+
+  <div style="height:50px"></div>
+</div>
+</body></html>
