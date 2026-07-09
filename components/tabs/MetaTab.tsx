@@ -23,7 +23,7 @@ const money = (v: number) => `R$ ${brl(v)}`
 const cpl = (r: Row) => r.leads > 0 ? `R$ ${brl(r.spend / r.leads, 2)}` : '—'
 const cpag = (r: Row) => r.agendados > 0 ? `R$ ${brl(r.spend / r.agendados, 2)}` : '—'
 
-export default function MetaTab({ period, custom }: { period: Period; periodLabel: string; custom: CustomRange | null }) {
+export default function MetaTab({ clientId, period, custom }: { clientId: string; period: Period; periodLabel: string; custom: CustomRange | null }) {
   const [sub, setSub] = useState<Sub>('contas')
   const [loading, setLoading] = useState(true)
   const [accounts, setAccounts] = useState<Row[]>([])
@@ -39,9 +39,9 @@ export default function MetaTab({ period, custom }: { period: Period; periodLabe
     let alive = true
     setLoading(true)
     Promise.all([
-      fetchWindowed('v_meta_account_daily', 'date, account_id, account_name, spend, meta_conversions, crm_leads, crm_agendados', period, 'date', custom ?? undefined),
-      fetchWindowed('v_meta_campaign_daily', 'date, account_id, account_name, campaign_id, campaign_name, spend, meta_conversions, crm_leads, crm_agendados', period, 'date', custom ?? undefined),
-      fetchAll('v_meta_creative_performance', 'ad_name, headline, account_id, creative_url, image_url, thumbnail_url, video_id, spend, impressions, clicks, crm_leads, crm_agendados, crm_ganhos, receita'),
+      fetchWindowed('v_meta_account_daily', 'date, account_id, account_name, spend, meta_conversions, crm_leads, crm_agendados', period, clientId, 'date', custom ?? undefined),
+      fetchWindowed('v_meta_campaign_daily', 'date, account_id, account_name, campaign_id, campaign_name, spend, meta_conversions, crm_leads, crm_agendados', period, clientId, 'date', custom ?? undefined),
+      fetchAll('v_meta_creative_performance', 'ad_name, headline, account_id, creative_url, image_url, thumbnail_url, video_id, spend, impressions, clicks, crm_leads, crm_agendados, crm_ganhos, receita', clientId),
     ]).then(([acc, camp, cr]) => {
       if (!alive) return
 
@@ -73,7 +73,7 @@ export default function MetaTab({ period, custom }: { period: Period; periodLabe
       setLoading(false)
     })
     return () => { alive = false }
-  }, [period, custom])
+  }, [clientId, period, custom])
 
   // contas para os seletores (nome por id)
   const accountOptions = accounts.map((a) => ({ id: a.account_id, name: a.name }))

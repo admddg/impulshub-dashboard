@@ -33,7 +33,7 @@ function etapaBadgeClass(etapa: string) {
   }
 }
 
-export default function LeadsTab({ period, custom }: { period: Period; custom: CustomRange | null }) {
+export default function LeadsTab({ clientId, period, custom }: { clientId: string; period: Period; custom: CustomRange | null }) {
   const [loading, setLoading] = useState(true)
   const [rows, setRows] = useState<LeadRow[]>([])
   const [filtro, setFiltro] = useState('Todos')
@@ -43,14 +43,14 @@ export default function LeadsTab({ period, custom }: { period: Period; custom: C
   useEffect(() => {
     let alive = true
     setLoading(true)
-    fetchAll('v_client_leads_by_stage', 'contact_id, full_name, phone, channel_source, lead_entrada, etapa, etapa_ordem, data_entrada')
+    fetchAll('v_client_leads_by_stage', 'contact_id, full_name, phone, channel_source, lead_entrada, etapa, etapa_ordem, data_entrada', clientId)
       .then(({ rows: data }) => {
         if (!alive) return
         setRows(data as LeadRow[])
         setLoading(false)
       })
     return () => { alive = false }
-  }, [])
+  }, [clientId])
 
   // filtra por data de entrada dentro do período
   const inPeriod = useMemo(() => rows.filter((r) => {

@@ -14,7 +14,7 @@ type KwRow = {
 
 function dm(iso: string) { const p = iso.split('-'); return `${p[2]}/${p[1]}` }
 
-export default function GoogleTab({ period, custom }: { period: Period; periodLabel: string; custom: CustomRange | null }) {
+export default function GoogleTab({ clientId, period, custom }: { clientId: string; period: Period; periodLabel: string; custom: CustomRange | null }) {
   const [loading, setLoading] = useState(true)
   const [rows, setRows] = useState<GRow[]>([])
   const [timeline, setTimeline] = useState<any[]>([])
@@ -27,8 +27,8 @@ export default function GoogleTab({ period, custom }: { period: Period; periodLa
     let alive = true
     setLoading(true)
     Promise.all([
-      fetchWindowed('v_google_campaign_daily', 'date, campaign_name, spend, impressions, clicks, crm_leads, google_conversions', period, 'date', custom ?? undefined),
-      fetchWindowed('v_google_ads_keywords_daily', 'date, keyword_text, campaign_name, ad_group_name, keyword_match_type, keyword_status, impressions, clicks, cost, ctr_percent, cpc, conversions', period, 'date', custom ?? undefined),
+      fetchWindowed('v_google_campaign_daily', 'date, campaign_name, spend, impressions, clicks, crm_leads, google_conversions', period, clientId, 'date', custom ?? undefined),
+      fetchWindowed('v_google_ads_keywords_daily', 'date, keyword_text, campaign_name, ad_group_name, keyword_match_type, keyword_status, impressions, clicks, cost, ctr_percent, cpc, conversions', period, clientId, 'date', custom ?? undefined),
     ]).then(([camp, kw]) => {
       if (!alive) return
       const cur = splitByDate(camp.rows, camp.current, camp.previous).cur
@@ -72,7 +72,7 @@ export default function GoogleTab({ period, custom }: { period: Period; periodLa
       setLoading(false)
     })
     return () => { alive = false }
-  }, [period, custom])
+  }, [clientId, period, custom])
 
   const campCols: Column<GRow>[] = [
     { key: 'campaign_name', header: 'Campanha', render: (r) => <span className="cell-name" title={r.campaign_name}>{r.campaign_name}</span>, sortValue: (r) => r.campaign_name, width: 240 },

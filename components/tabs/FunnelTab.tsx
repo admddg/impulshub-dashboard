@@ -19,7 +19,7 @@ function agg(rows: any[]): F {
   }), { ...EMPTY })
 }
 
-export default function FunnelTab({ period, periodLabel, custom }: { period: Period; periodLabel: string; custom: CustomRange | null }) {
+export default function FunnelTab({ clientId, period, periodLabel, custom }: { clientId: string; period: Period; periodLabel: string; custom: CustomRange | null }) {
   const [loading, setLoading] = useState(true)
   const [cur, setCur] = useState<F>(EMPTY)
   const [prev, setPrev] = useState<F>(EMPTY)
@@ -32,6 +32,7 @@ export default function FunnelTab({ period, periodLabel, custom }: { period: Per
       'v_crm_funnel_daily',
       'event_date, crm_leads, crm_primeiras_conversas, crm_agendados, crm_ganhos, crm_perdidos',
       period,
+      clientId,
       'event_date',
       custom ?? undefined
     ).then(({ rows, current, previous }) => {
@@ -41,7 +42,7 @@ export default function FunnelTab({ period, periodLabel, custom }: { period: Per
       setLoading(false)
     })
     return () => { alive = false }
-  }, [period, custom])
+  }, [clientId, period, custom])
 
   if (loading) return <div className="state"><div className="spinner" />Carregando funil…</div>
 

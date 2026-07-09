@@ -22,7 +22,7 @@ function agg(rows: any[]): Totals {
 // formata 'YYYY-MM-DD' -> 'DD/MM'
 function dm(iso: string) { const [, m, d] = iso.split('-'); return `${d}/${m}` }
 
-export default function OverviewTab({ period, periodLabel, custom }: { period: Period; periodLabel: string; custom: CustomRange | null }) {
+export default function OverviewTab({ clientId, period, periodLabel, custom }: { clientId: string; period: Period; periodLabel: string; custom: CustomRange | null }) {
   const [loading, setLoading] = useState(true)
   const [cur, setCur] = useState<Totals>(EMPTY)
   const [prev, setPrev] = useState<Totals>(EMPTY)
@@ -35,6 +35,7 @@ export default function OverviewTab({ period, periodLabel, custom }: { period: P
       'v_client_performance_daily',
       'date, spend, crm_leads, crm_agendados, crm_ganhos, receita',
       period,
+      clientId,
       'date',
       custom ?? undefined
     ).then(({ rows, current, previous }) => {
@@ -59,7 +60,7 @@ export default function OverviewTab({ period, periodLabel, custom }: { period: P
       setLoading(false)
     })
     return () => { alive = false }
-  }, [period, custom])
+  }, [clientId, period, custom])
 
   const cpl = cur.leads > 0 ? cur.spend / cur.leads : null
   const cplPrev = prev.leads > 0 ? prev.spend / prev.leads : null

@@ -39,7 +39,7 @@ function fmtHora(iso: string) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
-export default function EventsTab() {
+export default function EventsTab({ clientId }: { clientId: string }) {
   const [loading, setLoading] = useState(true)
   const [rows, setRows] = useState<EventRow[]>([])
   const [refreshing, setRefreshing] = useState(false)
@@ -48,13 +48,14 @@ export default function EventsTab() {
     const { data, error } = await supabase
       .from('v_client_recent_events')
       .select('event_id, event_datetime, event_code, full_name, phone, lead_entrada, channel_source')
+      .eq('client_id', clientId)
       .order('event_datetime', { ascending: false })
       .limit(50)
     if (error) console.error('Erro eventos:', error.message)
     setRows((data ?? []) as EventRow[])
     setLoading(false)
     setRefreshing(false)
-  }, [])
+  }, [clientId])
 
   useEffect(() => { load() }, [load])
 

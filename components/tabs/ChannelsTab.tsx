@@ -11,7 +11,7 @@ import DataTable, { type Column } from '@/components/DataTable'
 
 type CrossRow = { entrada: string; [origem: string]: string | number }
 
-export default function ChannelsTab({ period, custom }: { period: Period; periodLabel: string; custom: CustomRange | null }) {
+export default function ChannelsTab({ clientId, period, custom }: { clientId: string; period: Period; periodLabel: string; custom: CustomRange | null }) {
   const [loading, setLoading] = useState(true)
   const [porOrigem, setPorOrigem] = useState<{ label: string; value: number; color: string }[]>([])
   const [porEntrada, setPorEntrada] = useState<{ label: string; value: number; color: string }[]>([])
@@ -22,7 +22,7 @@ export default function ChannelsTab({ period, custom }: { period: Period; period
     let alive = true
     setLoading(true)
     // consome eventos enriquecidos (só leads), tem lead_entrada e lead_origem
-    fetchWindowed('v_crm_events_enriched', 'event_date, event_code, lead_entrada, lead_origem, channel_source', period, 'event_date', custom ?? undefined)
+    fetchWindowed('v_crm_events_enriched', 'event_date, event_code, lead_entrada, lead_origem, channel_source', period, clientId, 'event_date', custom ?? undefined)
       .then(({ rows, current, previous }) => {
         if (!alive) return
         const leads = splitByDate(rows, current, previous, 'event_date').cur.filter((r) => r.event_code === 'lead')
@@ -61,7 +61,7 @@ export default function ChannelsTab({ period, custom }: { period: Period; period
         setLoading(false)
       })
     return () => { alive = false }
-  }, [period, custom])
+  }, [clientId, period, custom])
 
   if (loading) return <div className="state"><div className="spinner" />Carregando canais…</div>
 
