@@ -41,7 +41,7 @@ export default function MetaTab({ clientId, period, custom }: { clientId: string
     Promise.all([
       fetchWindowed('v_meta_account_daily', 'date, account_id, account_name, spend, meta_conversions, crm_leads, crm_agendados', period, clientId, 'date', custom ?? undefined),
       fetchWindowed('v_meta_campaign_daily', 'date, account_id, account_name, campaign_id, campaign_name, spend, meta_conversions, crm_leads, crm_agendados', period, clientId, 'date', custom ?? undefined),
-      fetchAll('v_meta_creative_performance', 'ad_name, headline, account_id, creative_url, image_url, thumbnail_url, video_id, spend, impressions, clicks, crm_leads, crm_agendados, crm_ganhos, receita', clientId),
+      fetchWindowed('v_meta_creative_daily', 'date, account_id, ad_id, ad_name, headline, creative_url, image_url, thumbnail_url, video_id, spend, impressions, clicks, meta_conversions, crm_leads, crm_agendados, crm_ganhos, receita', period, clientId, 'date', custom ?? undefined),
     ]).then(([acc, camp, cr]) => {
       if (!alive) return
 
@@ -64,12 +64,29 @@ export default function MetaTab({ clientId, period, custom }: { clientId: string
       }
       setCampsRaw([...cmap.values()])
 
-      setCreatives(cr.rows.map((r: any) => ({
-        ad_name: r.ad_name ?? '(sem nome)', headline: r.headline, account_id: r.account_id,
-        creative_url: r.creative_url, image_url: r.image_url, thumbnail_url: r.thumbnail_url, video_id: r.video_id,
-        spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks),
-        crm_leads: num(r.crm_leads), crm_agendados: num(r.crm_agendados), crm_ganhos: num(r.crm_ganhos), receita: num(r.receita),
-      })))
+      // criativos: agrega por anúncio (ad_id) dentro do período atual selecionado
+      const crCur = splitByDate(cr.rows, cr.current, cr.previous).cur
+      const crMap = new Map<string, CreativeRow & { _lastDate: string }>()
+      for (const r of crCur) {
+        const key = r.ad_id ?? r.ad_name
+        const acc = crMap.get(key)
+        if (!acc || r.date > acc._lastDate) {
+          // nome/imagem vêm sempre do registro mais recente do período
+          crMap.set(key, {
+            ad_name: r.ad_name ?? '(sem nome)', headline: r.headline, account_id: r.account_id,
+            creative_url: r.creative_url, image_url: r.image_url, thumbnail_url: r.thumbnail_url, video_id: r.video_id,
+            spend: acc ? acc.spend : 0, impressions: acc ? acc.impressions : 0, clicks: acc ? acc.clicks : 0,
+            crm_leads: acc ? acc.crm_leads : 0, crm_agendados: acc ? acc.crm_agendados : 0,
+            crm_ganhos: acc ? acc.crm_ganhos : 0, receita: acc ? acc.receita : 0,
+            _lastDate: r.date,
+          })
+        }
+        const a = crMap.get(key)!
+        a.spend += num(r.spend); a.impressions += num(r.impressions); a.clicks += num(r.clicks)
+        a.crm_leads += num(r.crm_leads); a.crm_agendados += num(r.crm_agendados)
+        a.crm_ganhos += num(r.crm_ganhos); a.receita += num(r.receita)
+      }
+      setCreatives([...crMap.values()].map(({ _lastDate, ...rest }) => rest))
       setLoading(false)
     })
     return () => { alive = false }
