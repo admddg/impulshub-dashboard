@@ -5,6 +5,7 @@ import { fetchWindowed, splitByDate } from '@/lib/data'
 import { num, int, pct, type Period, type CustomRange } from '@/lib/utils'
 import { FunnelChart } from '@/components/Charts'
 import KpiCard from '@/components/KpiCard'
+import CohortNote from '@/components/CohortNote'
 
 type F = { leads: number; conversas: number; agendados: number; ganhos: number; perdidos: number }
 const EMPTY: F = { leads: 0, conversas: 0, agendados: 0, ganhos: 0, perdidos: 0 }
@@ -63,6 +64,7 @@ export default function FunnelTab({ clientId, period, periodLabel, custom }: { c
 
   return (
     <>
+      <CohortNote />
       <div className="block">
         <div className="block-head">
           <span className="block-title">Funil comercial</span>

@@ -6,6 +6,7 @@ import { num, brl, int, hiResImg, type Period, type CustomRange } from '@/lib/ut
 import DataTable, { type Column } from '@/components/DataTable'
 import { HBarChart } from '@/components/Charts'
 import Lightbox from '@/components/Lightbox'
+import CohortNote from '@/components/CohortNote'
 
 type Sub = 'contas' | 'campanhas' | 'criativos' | 'anuncios'
 
@@ -169,6 +170,7 @@ export default function MetaTab({ clientId, period, custom }: { clientId: string
 
   return (
     <>
+      <CohortNote />
       <div className="tabs" style={{ marginBottom: 16 }}>
         <button className={`tab ${sub === 'contas' ? 'active' : ''}`} onClick={() => setSub('contas')}>Contas de Anúncio</button>
         <button className={`tab ${sub === 'campanhas' ? 'active' : ''}`} onClick={() => setSub('campanhas')}>Campanhas</button>

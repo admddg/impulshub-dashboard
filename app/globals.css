@@ -42,7 +42,7 @@ body{
 .pagehead{display:flex;align-items:flex-end;justify-content:space-between;padding:32px 0 20px;flex-wrap:wrap;gap:16px}
 .pagehead h1{font-size:22px;font-weight:650;letter-spacing:-.02em;color:var(--petrol)}
 .pagehead .sub{font-size:13px;color:var(--ink-faint);margin-top:3px}
-.periods{display:flex;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:3px}
+.periods{display:flex;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:3px;flex-wrap:wrap}
 .period{border:none;background:none;font:inherit;font-size:13px;color:var(--ink-soft);padding:6px 12px;border-radius:6px;cursor:pointer;transition:.15s;white-space:nowrap}
 .period:hover{color:var(--petrol)}
 .period.active{background:var(--petrol);color:#fff;font-weight:500}
@@ -231,3 +231,33 @@ footer{padding:28px 0 40px;color:var(--ink-faint);font-size:12px;text-align:cent
 /* ---------- Trocar cliente ---------- */
 .signout-link{background:none;border:none;color:var(--ink-faint);font:inherit;font-size:12px;cursor:pointer;margin-right:16px;text-decoration:none;opacity:.8}
 .signout-link:hover{color:var(--petrol);opacity:1;text-decoration:underline;text-underline-offset:3px}
+
+/* ---------- Nota de metodologia de coorte (Meta/Google Ads) ---------- */
+.cohort-note{display:flex;gap:10px;align-items:flex-start;background:#f0f5f4;border:1px solid var(--mint-deep,#5fae95);border-radius:10px;padding:12px 14px;margin-bottom:16px}
+.cohort-note svg{width:17px;height:17px;color:var(--petrol);flex-shrink:0;margin-top:1px}
+.cohort-note-text{font-size:12.5px;line-height:1.55;color:var(--ink-soft)}
+.cohort-note-text strong{color:var(--petrol)}
+.cohort-note-close{background:none;border:none;font-size:18px;line-height:1;color:var(--ink-faint);cursor:pointer;padding:0 2px;flex-shrink:0}
+.cohort-note-close:hover{color:var(--petrol)}
+.cohort-note-collapsed{display:inline-flex;align-items:center;gap:6px;background:none;border:1px dashed var(--line);border-radius:20px;padding:5px 12px;font:inherit;font-size:12px;color:var(--ink-faint);cursor:pointer;margin-bottom:16px}
+.cohort-note-collapsed svg{width:13px;height:13px}
+.cohort-note-collapsed:hover{color:var(--petrol);border-color:var(--petrol)}
+
+/* ---------- Página Operação (saúde dos workflows) ---------- */
+.wf-num-success{color:#1f7a4d;font-weight:600}
+.wf-num-error{color:#c0392b;font-weight:700}
+.wf-num-partial{color:#b8860b;font-weight:600}
+
+.wf-status{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;flex-shrink:0}
+.wf-status-success{background:#e3f4ea;color:#1f7a4d}
+.wf-status-error{background:#fbe4e1;color:#c0392b}
+.wf-status-partial{background:#fbf0d9;color:#96690a}
+.wf-status-running{background:#e3edf7;color:#2a5d8f}
+.wf-status-skipped{background:#eef0f2;color:#6b7680}
+
+.wf-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.wf-dot-success{background:#1f7a4d}
+.wf-dot-error{background:#c0392b}
+.wf-dot-partial{background:#c99a1f}
+.wf-dot-running{background:#2a5d8f}
+.wf-dot-skipped{background:#9aa3ac}

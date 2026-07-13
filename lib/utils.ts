@@ -8,7 +8,7 @@ function toISODate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-export type Period = '7d' | '30d' | 'custom'
+export type Period = '15d' | '30d' | '90d' | 'custom'
 
 // Para período custom, o app passa as datas escolhidas.
 export type CustomRange = { start: string; end: string }
@@ -35,11 +35,10 @@ export function getRanges(period: Period, custom?: CustomRange) {
     }
   }
 
-  if (period === '7d') {
-    start.setDate(end.getDate() - 6)
-  } else {
-    start.setDate(end.getDate() - 29)
-  }
+  // 15 dias | 30 dias | 90 dias — sempre incluindo hoje
+  const daysByPeriod: Record<'15d' | '30d' | '90d', number> = { '15d': 15, '30d': 30, '90d': 90 }
+  const totalDays = daysByPeriod[period as '15d' | '30d' | '90d'] ?? 30
+  start.setDate(end.getDate() - (totalDays - 1))
 
   // duração em dias do período atual
   const msPerDay = 24 * 60 * 60 * 1000

@@ -45,6 +45,7 @@ export default function ClientesPage() {
             <span className="brand-name">ImpulsHub</span>
           </div>
           <div className="topbar-right">
+            <button className="signout-link" onClick={() => router.push('/operacao')}>Operação</button>
             <button className="signout" onClick={signOut}>Sair</button>
           </div>
         </div>

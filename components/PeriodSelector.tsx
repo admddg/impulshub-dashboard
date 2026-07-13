@@ -24,8 +24,9 @@ export default function PeriodSelector({
   return (
     <div className="periods-wrap">
       <div className="periods">
-        <button className={`period ${period === '7d' ? 'active' : ''}`} onClick={() => onChange('7d')}>7 dias</button>
+        <button className={`period ${period === '15d' ? 'active' : ''}`} onClick={() => onChange('15d')}>15 dias</button>
         <button className={`period ${period === '30d' ? 'active' : ''}`} onClick={() => onChange('30d')}>30 dias</button>
+        <button className={`period ${period === '90d' ? 'active' : ''}`} onClick={() => onChange('90d')}>90 dias</button>
         <button className={`period custom ${period === 'custom' ? 'active' : ''}`} onClick={() => setOpen((o) => !o)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
           {period === 'custom' && custom ? `${fmtBR(custom.start)} – ${fmtBR(custom.end)}` : 'Datas'}

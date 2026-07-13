@@ -5,6 +5,7 @@ import { fetchWindowed, fetchAll, splitByDate } from '@/lib/data'
 import { num, brl, int, type Period, type CustomRange } from '@/lib/utils'
 import DataTable, { type Column } from '@/components/DataTable'
 import { LineTimeChart, ColumnChart } from '@/components/Charts'
+import CohortNote from '@/components/CohortNote'
 
 type GRow = { campaign_name: string; spend: number; impressions: number; clicks: number; crm_leads: number; google_conversions: number }
 type KwRow = {
@@ -99,6 +100,7 @@ export default function GoogleTab({ clientId, period, custom }: { clientId: stri
 
   return (
     <>
+      <CohortNote />
       <div className="grid-2">
         <div className="block">
           <div className="block-head"><span className="block-title">Impressões, cliques e leads</span><span className="block-sub">Por dia</span></div>

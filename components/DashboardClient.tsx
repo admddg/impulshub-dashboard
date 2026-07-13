@@ -37,7 +37,7 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
   const [multiClient, setMultiClient] = useState(false)
 
   const [tab, setTab] = useState<Tab>('overview')
-  const [period, setPeriod] = useState<Period>('7d')
+  const [period, setPeriod] = useState<Period>('30d')
   const [custom, setCustom] = useState<CustomRange | null>(null)
 
   useEffect(() => {
@@ -96,7 +96,7 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
     )
   }
 
-  const periodLabel = period === '7d' ? '7d ant.' : period === '30d' ? '30d ant.' : 'per. ant.'
+  const periodLabel = period === '15d' ? '15d ant.' : period === '30d' ? '30d ant.' : period === '90d' ? '90d ant.' : 'per. ant.'
   const showPeriod = ['overview', 'funnel', 'channels', 'meta', 'google', 'leads'].includes(tab)
 
   return (
@@ -109,6 +109,7 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
             {clientName && <span className="brand-client">{clientName}</span>}
           </div>
           <div className="topbar-right">
+            {multiClient && <button className="signout-link" onClick={() => router.push('/operacao')}>Operação</button>}
             {multiClient && <button className="signout-link" onClick={() => router.replace('/clientes')}>Trocar cliente</button>}
             <button className="signout" onClick={signOut}>Sair</button>
           </div>
