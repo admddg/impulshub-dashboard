@@ -81,8 +81,7 @@ export default function GoogleTab({ clientId, period, custom }: { clientId: stri
     { key: 'impr', header: 'Impr.', align: 'right', render: (r) => int(r.impressions), sortValue: (r) => r.impressions },
     { key: 'clicks', header: 'Cliques', align: 'right', render: (r) => int(r.clicks), sortValue: (r) => r.clicks },
     { key: 'conv', header: 'Conv. Google', align: 'right', render: (r) => int(r.google_conversions), sortValue: (r) => r.google_conversions },
-    { key: 'leads', header: 'Leads CRM', align: 'right', render: (r) => int(r.crm_leads), sortValue: (r) => r.crm_leads },
-    { key: 'cpl', header: 'CPL', align: 'right', render: (r) => r.crm_leads > 0 ? `R$ ${brl(r.spend / r.crm_leads, 2)}` : <span className="cell-muted">—</span>, sortValue: (r) => r.crm_leads > 0 ? r.spend / r.crm_leads : 0 },
+    { key: 'custoconv', header: 'Custo/Conversão', align: 'right', render: (r) => r.google_conversions > 0 ? `R$ ${brl(r.spend / r.google_conversions, 2)}` : <span className="cell-muted">—</span>, sortValue: (r) => r.google_conversions > 0 ? r.spend / r.google_conversions : 0 },
   ]
 
   const kwCols: Column<KwRow>[] = [

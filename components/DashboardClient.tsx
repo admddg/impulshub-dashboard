@@ -13,8 +13,9 @@ import MetaTab from '@/components/tabs/MetaTab'
 import GoogleTab from '@/components/tabs/GoogleTab'
 import LeadsTab from '@/components/tabs/LeadsTab'
 import EventsTab from '@/components/tabs/EventsTab'
+import DiarioTab from '@/components/tabs/DiarioTab'
 
-type Tab = 'overview' | 'funnel' | 'channels' | 'meta' | 'google' | 'leads' | 'events'
+type Tab = 'overview' | 'funnel' | 'channels' | 'meta' | 'google' | 'leads' | 'events' | 'diario'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Visão geral' },
@@ -24,6 +25,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'google', label: 'Google Ads' },
   { id: 'leads', label: 'Leads' },
   { id: 'events', label: 'Eventos' },
+  { id: 'diario', label: 'Diário' },
 ]
 
 // Estados de carregamento da validação de acesso
@@ -97,7 +99,7 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
   }
 
   const periodLabel = period === '15d' ? '15d ant.' : period === '30d' ? '30d ant.' : period === '90d' ? '90d ant.' : 'per. ant.'
-  const showPeriod = ['overview', 'funnel', 'channels', 'meta', 'google', 'leads'].includes(tab)
+  const showPeriod = ['overview', 'funnel', 'channels', 'meta', 'google', 'leads', 'diario'].includes(tab)
 
   return (
     <>
@@ -140,6 +142,7 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
         {tab === 'google' && <GoogleTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
         {tab === 'leads' && <LeadsTab clientId={clientId} period={period} custom={custom} />}
         {tab === 'events' && <EventsTab clientId={clientId} />}
+        {tab === 'diario' && <DiarioTab clientId={clientId} period={period} custom={custom} />}
       </div>
 
       <footer>ImpulsHub · Dados atualizados diariamente · Fuso America/São_Paulo</footer>

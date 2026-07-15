@@ -261,3 +261,12 @@ footer{padding:28px 0 40px;color:var(--ink-faint);font-size:12px;text-align:cent
 .wf-dot-partial{background:#c99a1f}
 .wf-dot-running{background:#2a5d8f}
 .wf-dot-skipped{background:#9aa3ac}
+
+/* ---------- Paginação (aba Leads) ---------- */
+.pager{display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding:10px 4px;flex-wrap:wrap;gap:10px}
+.pager-info{font-size:12.5px;color:var(--ink-faint)}
+.pager-btns{display:flex;align-items:center;gap:10px}
+.pager-page{font-size:12.5px;color:var(--ink-soft);white-space:nowrap}
+.pager .sortbtn{border:1px solid var(--line);background:var(--surface)}
+.pager .sortbtn:disabled{opacity:.4;cursor:not-allowed}
+.pager .sortbtn:not(:disabled):hover{border-color:var(--petrol);color:var(--petrol)}

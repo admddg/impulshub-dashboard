@@ -21,11 +21,12 @@ export default function ChannelsTab({ clientId, period, custom }: { clientId: st
   useEffect(() => {
     let alive = true
     setLoading(true)
-    // consome eventos enriquecidos (só leads), tem lead_entrada e lead_origem
-    fetchWindowed('v_crm_events_enriched', 'event_date, event_code, lead_entrada, lead_origem, channel_source', period, clientId, 'event_date', custom ?? undefined)
+    // consome contagens já agregadas no banco (por dia + combinação de
+    // valores crus) — evita o mesmo risco de truncamento que o v_client_daily_pulse resolveu
+    fetchWindowed('v_client_lead_channel_daily', 'date, lead_entrada, lead_origem, channel_source, leads', period, clientId, 'date', custom ?? undefined)
       .then(({ rows, current, previous }) => {
         if (!alive) return
-        const leads = splitByDate(rows, current, previous, 'event_date').cur.filter((r) => r.event_code === 'lead')
+        const leads = splitByDate(rows, current, previous).cur
 
         // por origem (canal)
         const origemMap = new Map<string, number>()
@@ -37,11 +38,12 @@ export default function ChannelsTab({ clientId, period, custom }: { clientId: st
         for (const r of leads) {
           const origem = channelBucket(r.lead_origem ?? r.channel_source)
           const entrada = entradaBucket(r.lead_entrada)
-          origemMap.set(origem, (origemMap.get(origem) ?? 0) + 1)
-          entradaMap.set(entrada, (entradaMap.get(entrada) ?? 0) + 1)
+          const n = num(r.leads)
+          origemMap.set(origem, (origemMap.get(origem) ?? 0) + n)
+          entradaMap.set(entrada, (entradaMap.get(entrada) ?? 0) + n)
           if (!crossMap.has(entrada)) crossMap.set(entrada, new Map())
           const c = crossMap.get(entrada)!
-          c.set(origem, (c.get(origem) ?? 0) + 1)
+          c.set(origem, (c.get(origem) ?? 0) + n)
         }
 
         setPorOrigem(CHANNEL_ORDER.filter((o) => origemMap.has(o)).map((o) => ({ label: o, value: origemMap.get(o)!, color: channelColor(o) })))

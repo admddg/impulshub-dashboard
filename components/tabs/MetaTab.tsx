@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { fetchWindowed, fetchAll, splitByDate } from '@/lib/data'
-import { num, brl, int, hiResImg, type Period, type CustomRange } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
+import { num, brl, int, hiResImg, getRanges, type Period, type CustomRange } from '@/lib/utils'
 import DataTable, { type Column } from '@/components/DataTable'
 import { HBarChart } from '@/components/Charts'
 import Lightbox from '@/components/Lightbox'
@@ -12,7 +12,7 @@ type Sub = 'contas' | 'campanhas' | 'criativos' | 'anuncios'
 
 type Row = {
   key: string; name: string; account_id: string
-  spend: number; conversions: number; leads: number; agendados: number
+  spend: number; conversions: number; leads: number; agendados: number; ganhos: number; receita: number
 }
 type CreativeRow = {
   ad_name: string; headline: string | null; account_id: string
@@ -33,61 +33,51 @@ export default function MetaTab({ clientId, period, custom }: { clientId: string
   const [accountFilter, setAccountFilter] = useState<string>('all')      // campanhas
   const [accFilterCr, setAccFilterCr] = useState<string>('all')         // criativos
   const [accFilterAd, setAccFilterAd] = useState<string>('all')         // anúncios
-  const [creativeSort, setCreativeSort] = useState<'spend' | 'leads' | 'agend' | 'receita'>('spend')
+  const [creativeSort, setCreativeSort] = useState<'spend' | 'leads' | 'agend'>('spend')
   const [zoom, setZoom] = useState<{ src: string; alt: string } | null>(null)
 
   useEffect(() => {
     let alive = true
     setLoading(true)
+
+    // Funções RPC: já devolvem o total somado por conta/campanha/anúncio,
+    // calculado NO BANCO para o intervalo pedido — nunca linha-por-dia.
+    // Isso evita o limite de linhas por requisição do Supabase, que corta
+    // silenciosamente resultados grandes (era o bug: contas "sumindo" em
+    // janelas largas, tipo 90 dias, por causa de milhares de linhas
+    // diárias sendo buscadas de uma vez).
+    const { start, end } = getRanges(period, custom ?? undefined).current
+
     Promise.all([
-      fetchWindowed('v_meta_account_daily', 'date, account_id, account_name, spend, meta_conversions, crm_leads, crm_agendados', period, clientId, 'date', custom ?? undefined),
-      fetchWindowed('v_meta_campaign_daily', 'date, account_id, account_name, campaign_id, campaign_name, spend, meta_conversions, crm_leads, crm_agendados', period, clientId, 'date', custom ?? undefined),
-      fetchWindowed('v_meta_creative_daily', 'date, account_id, ad_id, ad_name, headline, creative_url, image_url, thumbnail_url, video_id, spend, impressions, clicks, meta_conversions, crm_leads, crm_agendados, crm_ganhos, receita', period, clientId, 'date', custom ?? undefined),
+      supabase.rpc('get_meta_account_summary', { p_client_id: clientId, p_start: start, p_end: end }),
+      supabase.rpc('get_meta_campaign_summary', { p_client_id: clientId, p_start: start, p_end: end }),
+      supabase.rpc('get_meta_creative_summary', { p_client_id: clientId, p_start: start, p_end: end }),
     ]).then(([acc, camp, cr]) => {
       if (!alive) return
 
-      const accSplit = splitByDate(acc.rows, acc.current, acc.previous)
-      const amap = new Map<string, Row>()
-      for (const r of accSplit.cur) {
-        const a = amap.get(r.account_id) ?? { key: r.account_id, name: r.account_name ?? r.account_id, account_id: r.account_id, spend: 0, conversions: 0, leads: 0, agendados: 0 }
-        a.spend += num(r.spend); a.conversions += num(r.meta_conversions); a.leads += num(r.crm_leads); a.agendados += num(r.crm_agendados)
-        amap.set(r.account_id, a)
-      }
-      setAccounts([...amap.values()].sort((a, b) => b.spend - a.spend))
+      if (acc.error) console.error('Erro em get_meta_account_summary:', acc.error.message)
+      if (camp.error) console.error('Erro em get_meta_campaign_summary:', camp.error.message)
+      if (cr.error) console.error('Erro em get_meta_creative_summary:', cr.error.message)
 
+      setAccounts(((acc.data ?? []) as any[]).map((r) => ({
+        key: r.account_id, name: r.account_name ?? r.account_id, account_id: r.account_id,
+        spend: num(r.spend), conversions: num(r.meta_conversions), leads: num(r.crm_leads),
+        agendados: num(r.crm_agendados), ganhos: num(r.crm_ganhos), receita: num(r.receita),
+      })).sort((a, b) => b.spend - a.spend))
 
-      const cmap = new Map<string, Row>()
-      for (const r of splitByDate(camp.rows, camp.current, camp.previous).cur) {
-        const key = `${r.account_id}|${r.campaign_name}`
-        const a = cmap.get(key) ?? { key, name: r.campaign_name ?? '(sem nome)', account_id: r.account_id, spend: 0, conversions: 0, leads: 0, agendados: 0 }
-        a.spend += num(r.spend); a.conversions += num(r.meta_conversions); a.leads += num(r.crm_leads); a.agendados += num(r.crm_agendados)
-        cmap.set(key, a)
-      }
-      setCampsRaw([...cmap.values()])
+      setCampsRaw(((camp.data ?? []) as any[]).map((r) => ({
+        key: `${r.account_id}|${r.campaign_id}`, name: r.campaign_name ?? '(sem nome)', account_id: r.account_id,
+        spend: num(r.spend), conversions: num(r.meta_conversions), leads: num(r.crm_leads),
+        agendados: num(r.crm_agendados), ganhos: num(r.crm_ganhos), receita: num(r.receita),
+      })))
 
-      // criativos: agrega por anúncio (ad_id) dentro do período atual selecionado
-      const crCur = splitByDate(cr.rows, cr.current, cr.previous).cur
-      const crMap = new Map<string, CreativeRow & { _lastDate: string }>()
-      for (const r of crCur) {
-        const key = r.ad_id ?? r.ad_name
-        const acc = crMap.get(key)
-        if (!acc || r.date > acc._lastDate) {
-          // nome/imagem vêm sempre do registro mais recente do período
-          crMap.set(key, {
-            ad_name: r.ad_name ?? '(sem nome)', headline: r.headline, account_id: r.account_id,
-            creative_url: r.creative_url, image_url: r.image_url, thumbnail_url: r.thumbnail_url, video_id: r.video_id,
-            spend: acc ? acc.spend : 0, impressions: acc ? acc.impressions : 0, clicks: acc ? acc.clicks : 0,
-            crm_leads: acc ? acc.crm_leads : 0, crm_agendados: acc ? acc.crm_agendados : 0,
-            crm_ganhos: acc ? acc.crm_ganhos : 0, receita: acc ? acc.receita : 0,
-            _lastDate: r.date,
-          })
-        }
-        const a = crMap.get(key)!
-        a.spend += num(r.spend); a.impressions += num(r.impressions); a.clicks += num(r.clicks)
-        a.crm_leads += num(r.crm_leads); a.crm_agendados += num(r.crm_agendados)
-        a.crm_ganhos += num(r.crm_ganhos); a.receita += num(r.receita)
-      }
-      setCreatives([...crMap.values()].map(({ _lastDate, ...rest }) => rest))
+      setCreatives(((cr.data ?? []) as any[]).map((r) => ({
+        ad_name: r.ad_name ?? '(sem nome)', headline: r.headline, account_id: r.account_id,
+        creative_url: r.creative_url, image_url: r.image_url, thumbnail_url: r.thumbnail_url, video_id: r.video_id,
+        spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks),
+        crm_leads: num(r.crm_leads), crm_agendados: num(r.crm_agendados), crm_ganhos: num(r.crm_ganhos), receita: num(r.receita),
+      })))
+
       setLoading(false)
     })
     return () => { alive = false }
@@ -107,7 +97,6 @@ export default function MetaTab({ clientId, period, custom }: { clientId: string
       spend: (a, b) => b.spend - a.spend,
       leads: (a, b) => b.crm_leads - a.crm_leads,
       agend: (a, b) => b.crm_agendados - a.crm_agendados,
-      receita: (a, b) => b.receita - a.receita,
     }
     return [...f].sort(sorters[creativeSort])
   }, [creatives, accFilterCr, creativeSort])
@@ -124,7 +113,7 @@ export default function MetaTab({ clientId, period, custom }: { clientId: string
 
   function mixCols(firstHeader: string): Column<Row>[] {
     return [
-      { key: 'name', header: firstHeader, render: (r) => <span className="cell-strong cell-name" title={r.name}>{r.name}</span>, sortValue: (r) => r.name, width: 220 },
+      { key: 'name', header: firstHeader, render: (r) => <span className="cell-strong cell-name" title={r.name}>{r.name}</span>, sortValue: (r) => r.name, width: 200 },
       { key: 'spend', header: 'Investido', align: 'right', render: (r) => money(r.spend), sortValue: (r) => r.spend },
       { key: 'conversions', header: 'Conversões Meta', align: 'right', render: (r) => int(r.conversions), sortValue: (r) => r.conversions },
       { key: 'leads', header: 'Leads', align: 'right', render: (r) => int(r.leads), sortValue: (r) => r.leads },
@@ -135,7 +124,10 @@ export default function MetaTab({ clientId, period, custom }: { clientId: string
   }
 
   function totalOf(rows: Row[], firstLabel: string) {
-    const t = rows.reduce((a, r) => ({ spend: a.spend + r.spend, conversions: a.conversions + r.conversions, leads: a.leads + r.leads, agendados: a.agendados + r.agendados }), { spend: 0, conversions: 0, leads: 0, agendados: 0 })
+    const t = rows.reduce((a, r) => ({
+      spend: a.spend + r.spend, conversions: a.conversions + r.conversions, leads: a.leads + r.leads,
+      agendados: a.agendados + r.agendados,
+    }), { spend: 0, conversions: 0, leads: 0, agendados: 0 })
     return {
       name: firstLabel, spend: money(t.spend), conversions: int(t.conversions), leads: int(t.leads),
       cpl: t.leads > 0 ? `R$ ${brl(t.spend / t.leads, 2)}` : '—',
@@ -145,7 +137,7 @@ export default function MetaTab({ clientId, period, custom }: { clientId: string
 
   // colunas da aba Anúncios (indicadores por criativo)
   const adCols: Column<CreativeRow>[] = [
-    { key: 'ad_name', header: 'Anúncio', render: (r) => <span className="cell-strong cell-name" title={r.ad_name}>{r.ad_name}</span>, sortValue: (r) => r.ad_name, width: 200 },
+    { key: 'ad_name', header: 'Anúncio', render: (r) => <span className="cell-strong cell-name" title={r.ad_name}>{r.ad_name}</span>, sortValue: (r) => r.ad_name, width: 190 },
     { key: 'spend', header: 'Investido', align: 'right', render: (r) => money(r.spend), sortValue: (r) => r.spend },
     { key: 'ctr', header: 'CTR', align: 'right', render: (r) => r.impressions > 0 ? `${((r.clicks / r.impressions) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` : '—', sortValue: (r) => r.impressions > 0 ? r.clicks / r.impressions : 0 },
     { key: 'cpc', header: 'CPC', align: 'right', render: (r) => r.clicks > 0 ? `R$ ${brl(r.spend / r.clicks, 2)}` : '—', sortValue: (r) => r.clicks > 0 ? r.spend / r.clicks : 0 },
@@ -208,7 +200,6 @@ export default function MetaTab({ clientId, period, custom }: { clientId: string
                 <button className={`sortbtn ${creativeSort === 'spend' ? 'active' : ''}`} onClick={() => setCreativeSort('spend')}>Investimento</button>
                 <button className={`sortbtn ${creativeSort === 'leads' ? 'active' : ''}`} onClick={() => setCreativeSort('leads')}>Leads</button>
                 <button className={`sortbtn ${creativeSort === 'agend' ? 'active' : ''}`} onClick={() => setCreativeSort('agend')}>Agendam.</button>
-                <button className={`sortbtn ${creativeSort === 'receita' ? 'active' : ''}`} onClick={() => setCreativeSort('receita')}>Receita</button>
               </div>
             </div>
           </div>
@@ -228,7 +219,7 @@ export default function MetaTab({ clientId, period, custom }: { clientId: string
                       <div className="creative-metric"><div className="m-label">Investido</div><div className="m-value">R$ {brl(c.spend)}</div></div>
                       <div className="creative-metric"><div className="m-label">Leads</div><div className="m-value">{int(c.crm_leads)}</div></div>
                       <div className="creative-metric"><div className="m-label">Agendam.</div><div className="m-value">{int(c.crm_agendados)}</div></div>
-                      <div className="creative-metric"><div className="m-label">Receita</div><div className="m-value">{c.receita > 0 ? `R$ ${brl(c.receita)}` : '—'}</div></div>
+                      <div className="creative-metric"><div className="m-label">Custo/Agend.</div><div className="m-value">{c.crm_agendados > 0 ? `R$ ${brl(c.spend / c.crm_agendados, 2)}` : '—'}</div></div>
                     </div>
                   </div>
                 </div>
