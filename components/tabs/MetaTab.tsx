@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { num, brl, int, hiResImg, getRanges, type Period, type CustomRange } from '@/lib/utils'
 import DataTable, { type Column } from '@/components/DataTable'
@@ -8,151 +8,168 @@ import { HBarChart } from '@/components/Charts'
 import Lightbox from '@/components/Lightbox'
 import CohortNote from '@/components/CohortNote'
 
-type Sub = 'contas' | 'campanhas' | 'criativos' | 'anuncios'
+type Sub = 'contas' | 'campanhas' | 'anuncios' | 'criativos'
 
 type Row = {
-  key: string; name: string; account_id: string
-  spend: number; conversions: number; leads: number; agendados: number; ganhos: number; receita: number
-}
-type CreativeRow = {
-  ad_name: string; headline: string | null; account_id: string
-  creative_url: string | null; image_url: string | null; thumbnail_url: string | null; video_id: string | null
-  spend: number; impressions: number; clicks: number; crm_leads: number; crm_agendados: number; crm_ganhos: number; receita: number
+  group_id: string; group_name: string
+  account_id: string; account_name: string
+  spend: number; crm_leads: number; crm_agendados: number
+  acquisition_revenue: number | null; acquisition_revenue_is_complete: boolean | null
+  roas_acquisition: number | null
+  ad_name: string | null; headline: string | null
+  creative_url: string | null; image_url: string | null; thumbnail_url: string | null
 }
 
+type DimState = { data: Row[]; status: 'idle' | 'loading' | 'ok' | 'error' }
+const EMPTY_DIM: DimState = { data: [], status: 'idle' }
+const SUBS: Sub[] = ['contas', 'campanhas', 'anuncios', 'criativos']
+const DIM_MAP: Record<Sub, string> = {
+  contas: 'account', campanhas: 'campaign', anuncios: 'ad', criativos: 'creative',
+}
+
+// helpers
+const dash = '—'
 const money = (v: number) => `R$ ${brl(v)}`
-const cpl = (r: Row) => r.leads > 0 ? `R$ ${brl(r.spend / r.leads, 2)}` : '—'
-const cpag = (r: Row) => r.agendados > 0 ? `R$ ${brl(r.spend / r.agendados, 2)}` : '—'
+const cpl  = (s: number, l: number) => l > 0 ? `R$ ${brl(s / l, 2)}` : dash
+const cpag = (s: number, a: number) => a > 0 ? `R$ ${brl(s / a, 2)}` : dash
+const receitaFmt = (v: number | null, ok: boolean | null) =>
+  v === null || ok === false ? dash : `R$ ${brl(v)}`
+const roasFmt = (v: number | null, ok: boolean | null) =>
+  v === null || ok === false ? dash
+    : v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + 'x'
 
-export default function MetaTab({ clientId, period, custom }: { clientId: string; period: Period; periodLabel: string; custom: CustomRange | null }) {
+function mapRow(r: any): Row {
+  return {
+    group_id: r.group_id ?? '', group_name: r.group_name ?? '(sem nome)',
+    account_id: r.account_id ?? '', account_name: r.account_name ?? '',
+    spend: num(r.spend), crm_leads: num(r.crm_leads), crm_agendados: num(r.crm_agendados),
+    acquisition_revenue: r.acquisition_revenue !== null ? num(r.acquisition_revenue) : null,
+    acquisition_revenue_is_complete: r.acquisition_revenue_is_complete ?? null,
+    roas_acquisition: r.roas_acquisition !== null ? num(r.roas_acquisition) : null,
+    ad_name: r.ad_name ?? null, headline: r.headline ?? null,
+    creative_url: r.creative_url ?? null, image_url: r.image_url ?? null,
+    thumbnail_url: r.thumbnail_url ?? null,
+  }
+}
+
+export default function MetaTab({ clientId, period, custom }: {
+  clientId: string; period: Period; periodLabel: string; custom: CustomRange | null
+}) {
   const [sub, setSub] = useState<Sub>('contas')
-  const [loading, setLoading] = useState(true)
-  const [accounts, setAccounts] = useState<Row[]>([])
-  const [campsRaw, setCampsRaw] = useState<Row[]>([])
-  const [creatives, setCreatives] = useState<CreativeRow[]>([])
-  const [accountFilter, setAccountFilter] = useState<string>('all')      // campanhas
-  const [accFilterCr, setAccFilterCr] = useState<string>('all')         // criativos
-  const [accFilterAd, setAccFilterAd] = useState<string>('all')         // anúncios
+  const [dims, setDims] = useState<Record<Sub, DimState>>({
+    contas: EMPTY_DIM, campanhas: EMPTY_DIM, anuncios: EMPTY_DIM, criativos: EMPTY_DIM,
+  })
+  const [accountFilter, setAccountFilter] = useState('all')
   const [creativeSort, setCreativeSort] = useState<'spend' | 'leads' | 'agend'>('spend')
   const [zoom, setZoom] = useState<{ src: string; alt: string } | null>(null)
 
+  // Reseta tudo quando cliente ou período muda
   useEffect(() => {
-    let alive = true
-    setLoading(true)
-
-    // Funções RPC: já devolvem o total somado por conta/campanha/anúncio,
-    // calculado NO BANCO para o intervalo pedido — nunca linha-por-dia.
-    // Isso evita o limite de linhas por requisição do Supabase, que corta
-    // silenciosamente resultados grandes (era o bug: contas "sumindo" em
-    // janelas largas, tipo 90 dias, por causa de milhares de linhas
-    // diárias sendo buscadas de uma vez).
-    const { start, end } = getRanges(period, custom ?? undefined).current
-
-    Promise.all([
-      supabase.rpc('get_meta_account_summary', { p_client_id: clientId, p_start: start, p_end: end }),
-      supabase.rpc('get_meta_campaign_summary', { p_client_id: clientId, p_start: start, p_end: end }),
-      supabase.rpc('get_meta_creative_summary', { p_client_id: clientId, p_start: start, p_end: end }),
-    ]).then(([acc, camp, cr]) => {
-      if (!alive) return
-
-      if (acc.error) console.error('Erro em get_meta_account_summary:', acc.error.message)
-      if (camp.error) console.error('Erro em get_meta_campaign_summary:', camp.error.message)
-      if (cr.error) console.error('Erro em get_meta_creative_summary:', cr.error.message)
-
-      setAccounts(((acc.data ?? []) as any[]).map((r) => ({
-        key: r.account_id, name: r.account_name ?? r.account_id, account_id: r.account_id,
-        spend: num(r.spend), conversions: num(r.meta_conversions), leads: num(r.crm_leads),
-        agendados: num(r.crm_agendados), ganhos: num(r.crm_ganhos), receita: num(r.receita),
-      })).sort((a, b) => b.spend - a.spend))
-
-      setCampsRaw(((camp.data ?? []) as any[]).map((r) => ({
-        key: `${r.account_id}|${r.campaign_id}`, name: r.campaign_name ?? '(sem nome)', account_id: r.account_id,
-        spend: num(r.spend), conversions: num(r.meta_conversions), leads: num(r.crm_leads),
-        agendados: num(r.crm_agendados), ganhos: num(r.crm_ganhos), receita: num(r.receita),
-      })))
-
-      setCreatives(((cr.data ?? []) as any[]).map((r) => ({
-        ad_name: r.ad_name ?? '(sem nome)', headline: r.headline, account_id: r.account_id,
-        creative_url: r.creative_url, image_url: r.image_url, thumbnail_url: r.thumbnail_url, video_id: r.video_id,
-        spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks),
-        crm_leads: num(r.crm_leads), crm_agendados: num(r.crm_agendados), crm_ganhos: num(r.crm_ganhos), receita: num(r.receita),
-      })))
-
-      setLoading(false)
-    })
-    return () => { alive = false }
+    setDims({ contas: EMPTY_DIM, campanhas: EMPTY_DIM, anuncios: EMPTY_DIM, criativos: EMPTY_DIM })
+    setAccountFilter('all')
   }, [clientId, period, custom])
 
-  // contas para os seletores (nome por id)
-  const accountOptions = accounts.map((a) => ({ id: a.account_id, name: a.name }))
+  // Carrega uma dimensão sob demanda — guarda contra duplicação pelo status
+  const loadDim = useCallback((dimension: Sub) => {
+    setDims((prev) => {
+      if (prev[dimension].status !== 'idle') return prev // já carregado ou em andamento
+      return { ...prev, [dimension]: { data: [], status: 'loading' } }
+    })
+    const { start, end } = getRanges(period, custom ?? undefined).current
+    supabase.rpc('get_meta_ads_summary_v2', {
+      p_client_id: clientId, p_start_date: start, p_end_date: end,
+      p_dimension: DIM_MAP[dimension],
+    }).then(({ data, error }) => {
+      if (error) {
+        console.error('[Impuls] meta summary:', DIM_MAP[dimension], error.message)
+        setDims((prev) => ({ ...prev, [dimension]: { data: [], status: 'error' } }))
+        return
+      }
+      setDims((prev) => ({
+        ...prev,
+        [dimension]: { data: ((data ?? []) as any[]).map(mapRow), status: 'ok' },
+      }))
+    })
+  }, [clientId, period, custom])
 
-  const camps = useMemo(() => {
-    const f = accountFilter === 'all' ? campsRaw : campsRaw.filter((c) => c.account_id === accountFilter)
-    return f.sort((a, b) => b.spend - a.spend)
-  }, [campsRaw, accountFilter])
+  // Carrega a sub-aba ativa (única fonte de trigger — sem duplicação)
+  useEffect(() => { loadDim(sub) }, [sub, loadDim])
 
-  const creativesFiltered = useMemo(() => {
-    const f = accFilterCr === 'all' ? creatives : creatives.filter((c) => c.account_id === accFilterCr)
-    const sorters: Record<string, (a: CreativeRow, b: CreativeRow) => number> = {
-      spend: (a, b) => b.spend - a.spend,
-      leads: (a, b) => b.crm_leads - a.crm_leads,
-      agend: (a, b) => b.crm_agendados - a.crm_agendados,
-    }
-    return [...f].sort(sorters[creativeSort])
-  }, [creatives, accFilterCr, creativeSort])
+  const cur = dims[sub]
 
-  const anunciosFiltered = useMemo(() => {
-    const f = accFilterAd === 'all' ? creatives : creatives.filter((c) => c.account_id === accFilterAd)
-    return [...f].sort((a, b) => b.spend - a.spend)
-  }, [creatives, accFilterAd])
+  const accountOptions = useMemo(() => {
+    const seen = new Map<string, string>()
+    SUBS.forEach((s) => dims[s].data.forEach((r) => {
+      if (r.account_id) seen.set(r.account_id, r.account_name)
+    }))
+    return [...seen.entries()].map(([id, name]) => ({ id, name }))
+  }, [dims])
 
-  // melhor imagem: creative_url tratada (hi-res) > image_url > thumbnail tratada
-  function bestImg(c: CreativeRow): string | null {
-    return hiResImg(c.creative_url) || c.image_url || hiResImg(c.thumbnail_url)
+  function filtered(rows: Row[]) {
+    return accountFilter === 'all' ? rows : rows.filter((r) => r.account_id === accountFilter)
   }
 
-  function mixCols(firstHeader: string): Column<Row>[] {
+  const creativesFiltered = useMemo(() => {
+    const f = filtered(dims.criativos.data)
+    const sorters = {
+      spend: (a: Row, b: Row) => b.spend - a.spend,
+      leads: (a: Row, b: Row) => b.crm_leads - a.crm_leads,
+      agend: (a: Row, b: Row) => b.crm_agendados - a.crm_agendados,
+    }
+    return [...f].sort(sorters[creativeSort])
+  }, [dims.criativos.data, accountFilter, creativeSort])
+
+  function bestImg(r: Row) {
+    return hiResImg(r.creative_url) || r.image_url || hiResImg(r.thumbnail_url)
+  }
+
+  function fullFunnelCols(firstHeader: string): Column<Row>[] {
     return [
-      { key: 'name', header: firstHeader, render: (r) => <span className="cell-strong cell-name" title={r.name}>{r.name}</span>, sortValue: (r) => r.name, width: 200 },
-      { key: 'spend', header: 'Investido', align: 'right', render: (r) => money(r.spend), sortValue: (r) => r.spend },
-      { key: 'conversions', header: 'Conversões Meta', align: 'right', render: (r) => int(r.conversions), sortValue: (r) => r.conversions },
-      { key: 'leads', header: 'Leads', align: 'right', render: (r) => int(r.leads), sortValue: (r) => r.leads },
-      { key: 'cpl', header: 'CPL', align: 'right', render: (r) => cpl(r), sortValue: (r) => r.leads > 0 ? r.spend / r.leads : 0 },
-      { key: 'agendados', header: 'Agendam.', align: 'right', render: (r) => int(r.agendados), sortValue: (r) => r.agendados },
-      { key: 'cpag', header: 'CPag', align: 'right', render: (r) => cpag(r), sortValue: (r) => r.agendados > 0 ? r.spend / r.agendados : 0 },
+      { key: 'name', header: firstHeader, width: 200,
+        render: (r) => <span className="cell-strong cell-name" title={r.group_name}>{r.group_name}</span>,
+        sortValue: (r) => r.group_name },
+      { key: 'spend', header: 'Investido', align: 'right',
+        render: (r) => money(r.spend), sortValue: (r) => r.spend },
+      { key: 'leads', header: 'Leads', align: 'right',
+        render: (r) => int(r.crm_leads), sortValue: (r) => r.crm_leads },
+      { key: 'cpl', header: 'CPL', align: 'right',
+        render: (r) => { const v = cpl(r.spend, r.crm_leads); return v === dash ? <span className="cell-muted">—</span> : v },
+        sortValue: (r) => r.crm_leads > 0 ? r.spend / r.crm_leads : 0 },
+      { key: 'agend', header: 'Agendam.', align: 'right',
+        render: (r) => int(r.crm_agendados), sortValue: (r) => r.crm_agendados },
+      { key: 'cpag', header: 'CPag', align: 'right',
+        render: (r) => { const v = cpag(r.spend, r.crm_agendados); return v === dash ? <span className="cell-muted">—</span> : v },
+        sortValue: (r) => r.crm_agendados > 0 ? r.spend / r.crm_agendados : 0 },
+      { key: 'receita', header: 'Receita', align: 'right',
+        tooltip: 'Receita de aquisição por coorte de lead',
+        render: (r) => { const v = receitaFmt(r.acquisition_revenue, r.acquisition_revenue_is_complete); return v === dash ? <span className="cell-muted">—</span> : v },
+        sortValue: (r) => r.acquisition_revenue ?? -1 },
+      { key: 'roas', header: 'ROAS', align: 'right',
+        render: (r) => { const v = roasFmt(r.roas_acquisition, r.acquisition_revenue_is_complete); return v === dash ? <span className="cell-muted">—</span> : v },
+        sortValue: (r) => r.roas_acquisition ?? -1 },
     ]
   }
 
-  function totalOf(rows: Row[], firstLabel: string) {
+  function totalOf(rows: Row[], label: string) {
     const t = rows.reduce((a, r) => ({
-      spend: a.spend + r.spend, conversions: a.conversions + r.conversions, leads: a.leads + r.leads,
-      agendados: a.agendados + r.agendados,
-    }), { spend: 0, conversions: 0, leads: 0, agendados: 0 })
+      spend: a.spend + r.spend, leads: a.leads + r.crm_leads, agend: a.agend + r.crm_agendados,
+    }), { spend: 0, leads: 0, agend: 0 })
     return {
-      name: firstLabel, spend: money(t.spend), conversions: int(t.conversions), leads: int(t.leads),
-      cpl: t.leads > 0 ? `R$ ${brl(t.spend / t.leads, 2)}` : '—',
-      agendados: int(t.agendados), cpag: t.agendados > 0 ? `R$ ${brl(t.spend / t.agendados, 2)}` : '—',
+      name: label, spend: money(t.spend), leads: int(t.leads),
+      cpl: t.leads > 0 ? `R$ ${brl(t.spend / t.leads, 2)}` : dash,
+      agend: int(t.agend),
+      cpag: t.agend > 0 ? `R$ ${brl(t.spend / t.agend, 2)}` : dash,
+      receita: dash, roas: dash,
     }
   }
 
-  // colunas da aba Anúncios (indicadores por criativo)
-  const adCols: Column<CreativeRow>[] = [
-    { key: 'ad_name', header: 'Anúncio', render: (r) => <span className="cell-strong cell-name" title={r.ad_name}>{r.ad_name}</span>, sortValue: (r) => r.ad_name, width: 190 },
-    { key: 'spend', header: 'Investido', align: 'right', render: (r) => money(r.spend), sortValue: (r) => r.spend },
-    { key: 'ctr', header: 'CTR', align: 'right', render: (r) => r.impressions > 0 ? `${((r.clicks / r.impressions) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%` : '—', sortValue: (r) => r.impressions > 0 ? r.clicks / r.impressions : 0 },
-    { key: 'cpc', header: 'CPC', align: 'right', render: (r) => r.clicks > 0 ? `R$ ${brl(r.spend / r.clicks, 2)}` : '—', sortValue: (r) => r.clicks > 0 ? r.spend / r.clicks : 0 },
-    { key: 'leads', header: 'Leads', align: 'right', render: (r) => int(r.crm_leads), sortValue: (r) => r.crm_leads },
-    { key: 'cpl', header: 'CPL', align: 'right', render: (r) => r.crm_leads > 0 ? `R$ ${brl(r.spend / r.crm_leads, 2)}` : '—', sortValue: (r) => r.crm_leads > 0 ? r.spend / r.crm_leads : 0 },
-    { key: 'agend', header: 'Agendam.', align: 'right', render: (r) => int(r.crm_agendados), sortValue: (r) => r.crm_agendados },
-    { key: 'cpag', header: 'CPag', align: 'right', render: (r) => r.crm_agendados > 0 ? `R$ ${brl(r.spend / r.crm_agendados, 2)}` : '—', sortValue: (r) => r.crm_agendados > 0 ? r.spend / r.crm_agendados : 0 },
-  ]
-
-  function AccountSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  function AccountSelect() {
     if (accountOptions.length <= 1) return null
     return (
       <div className="subbar">
         <span className="subbar-label">Conta:</span>
-        <select className="select-native" value={value} onChange={(e) => onChange(e.target.value)}>
+        <select className="select-native" value={accountFilter}
+          onChange={(e) => setAccountFilter(e.target.value)}>
           <option value="all">Todas as contas</option>
           {accountOptions.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
@@ -160,78 +177,129 @@ export default function MetaTab({ clientId, period, custom }: { clientId: string
     )
   }
 
+  function DimError({ dim }: { dim: Sub }) {
+    return (
+      <div className="state" style={{ flexDirection: 'column', gap: 12 }}>
+        <span style={{ color: 'var(--ink-soft)', fontSize: 14 }}>
+          Não foi possível carregar os dados. Tente novamente.
+        </span>
+        <button className="sortbtn" style={{ border: '1px solid var(--line)' }}
+          onClick={() => setDims((prev) => ({ ...prev, [dim]: EMPTY_DIM }))}>
+          Tentar novamente
+        </button>
+      </div>
+    )
+  }
+
+  function TabContent() {
+    if (cur.status === 'idle' || cur.status === 'loading')
+      return <div className="state"><div className="spinner" />Carregando Meta Ads…</div>
+    if (cur.status === 'error') return <DimError dim={sub} />
+
+    const rows = filtered(cur.data).sort((a, b) => b.spend - a.spend)
+
+    if (sub === 'contas') return (
+      <>
+        <div className="block">
+          <div className="block-head">
+            <span className="block-title">Leads por conta de anúncio</span>
+            <span className="block-sub">Leads do CRM atribuídos a cada conta</span>
+          </div>
+          <HBarChart data={cur.data.map((r) => ({ label: r.group_name, value: r.crm_leads, color: '#00313d' }))}
+            fmt={(v) => int(v)} height={Math.max(cur.data.length * 42, 100)} />
+        </div>
+        <DataTable columns={fullFunnelCols('Conta de anúncio')} rows={cur.data}
+          initialSort={{ key: 'spend', dir: 'desc' }} totalRow={totalOf(cur.data, 'Total')} />
+      </>
+    )
+
+    if (sub === 'campanhas') return (
+      <>
+        <AccountSelect />
+        <DataTable columns={fullFunnelCols('Campanha')} rows={rows}
+          initialSort={{ key: 'spend', dir: 'desc' }} totalRow={totalOf(rows, 'Total')} />
+      </>
+    )
+
+    if (sub === 'anuncios') return (
+      <>
+        <AccountSelect />
+        <DataTable columns={fullFunnelCols('Anúncio')} rows={rows}
+          initialSort={{ key: 'spend', dir: 'desc' }} totalRow={totalOf(rows, 'Total')} />
+      </>
+    )
+
+    // criativos
+    return (
+      <>
+        <div className="subbar" style={{ justifyContent: 'space-between' }}>
+          <AccountSelect />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span className="subbar-label">Ordenar:</span>
+            <div className="sortbtns">
+              {(['spend', 'leads', 'agend'] as const).map((s) => (
+                <button key={s} className={`sortbtn ${creativeSort === s ? 'active' : ''}`}
+                  onClick={() => setCreativeSort(s)}>
+                  {s === 'spend' ? 'Investimento' : s === 'leads' ? 'Leads' : 'Agendam.'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="creative-grid">
+          {creativesFiltered.length === 0 && (
+            <div className="table-empty" style={{ gridColumn: '1/-1' }}>Nenhum criativo no período.</div>
+          )}
+          {creativesFiltered.map((c, i) => {
+            const img = bestImg(c)
+            // Hierarquia oficial (contrato banco 16/07):
+            // título    → ad_name || creative_name (group_name) || creative_id (group_id)
+            // subtítulo → headline quando diferente do título
+            const title = c.ad_name || c.group_name || c.group_id || 'Criativo sem nome'
+            const subtitle = c.headline && c.headline !== title ? c.headline : null
+            return (
+              <div className="creative" key={i}>
+                {img
+                  ? <img className="creative-img" src={img} alt={title} loading="lazy"
+                      onClick={() => setZoom({ src: img, alt: title })} />
+                  : <div className="creative-noimg">sem imagem</div>}
+                <div className="creative-body">
+                  <div className="creative-adname">{title}</div>
+                  {subtitle && <div className="creative-headline">{subtitle}</div>}
+                  <div className="creative-metrics">
+                    <div className="creative-metric"><div className="m-label">Investido</div><div className="m-value">{money(c.spend)}</div></div>
+                    <div className="creative-metric"><div className="m-label">Leads</div><div className="m-value">{int(c.crm_leads)}</div></div>
+                    <div className="creative-metric"><div className="m-label">Agendam.</div><div className="m-value">{int(c.crm_agendados)}</div></div>
+                    <div className="creative-metric"><div className="m-label">Custo/Agend.</div><div className="m-value">{c.crm_agendados > 0 ? `R$ ${brl(c.spend / c.crm_agendados, 2)}` : dash}</div></div>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </>
+    )
+  }
+
   return (
     <>
       <CohortNote />
       <div className="tabs" style={{ marginBottom: 16 }}>
-        <button className={`tab ${sub === 'contas' ? 'active' : ''}`} onClick={() => setSub('contas')}>Contas de Anúncio</button>
-        <button className={`tab ${sub === 'campanhas' ? 'active' : ''}`} onClick={() => setSub('campanhas')}>Campanhas</button>
-        <button className={`tab ${sub === 'anuncios' ? 'active' : ''}`} onClick={() => setSub('anuncios')}>Anúncios</button>
-        <button className={`tab ${sub === 'criativos' ? 'active' : ''}`} onClick={() => setSub('criativos')}>Criativos</button>
+        {SUBS.map((s) => (
+          <button key={s} className={`tab ${sub === s ? 'active' : ''}`} onClick={() => setSub(s)}>
+            {s === 'contas' ? 'Contas de Anúncio' : s === 'campanhas' ? 'Campanhas' : s === 'anuncios' ? 'Anúncios' : 'Criativos'}
+            {dims[s].status === 'loading' && <span style={{ marginLeft: 6, opacity: 0.5, fontSize: 11 }}>⟳</span>}
+          </button>
+        ))}
       </div>
 
-      {loading ? (
-        <div className="state"><div className="spinner" />Carregando Meta Ads…</div>
-      ) : sub === 'contas' ? (
-        <>
-          <div className="block">
-            <div className="block-head"><span className="block-title">Leads por conta</span><span className="block-sub">Leads do CRM atribuídos a cada conta</span></div>
-            <HBarChart data={accounts.map((a) => ({ label: a.name, value: a.leads, color: '#00313d' }))} fmt={(v) => int(v)} height={Math.max(accounts.length * 42, 120)} />
-          </div>
-          <DataTable columns={mixCols('Conta de anúncio')} rows={accounts} initialSort={{ key: 'spend', dir: 'desc' }} totalRow={totalOf(accounts, 'Total')} />
-        </>
-      ) : sub === 'campanhas' ? (
-        <>
-          <AccountSelect value={accountFilter} onChange={setAccountFilter} />
-          <DataTable columns={mixCols('Campanha')} rows={camps} initialSort={{ key: 'spend', dir: 'desc' }} totalRow={totalOf(camps, 'Total')} />
-        </>
-      ) : sub === 'anuncios' ? (
-        <>
-          <AccountSelect value={accFilterAd} onChange={setAccFilterAd} />
-          <DataTable columns={adCols} rows={anunciosFiltered} initialSort={{ key: 'spend', dir: 'desc' }} />
-        </>
-      ) : (
-        <>
-          <div className="subbar" style={{ justifyContent: 'space-between' }}>
-            <AccountSelect value={accFilterCr} onChange={setAccFilterCr} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className="subbar-label">Ordenar:</span>
-              <div className="sortbtns">
-                <button className={`sortbtn ${creativeSort === 'spend' ? 'active' : ''}`} onClick={() => setCreativeSort('spend')}>Investimento</button>
-                <button className={`sortbtn ${creativeSort === 'leads' ? 'active' : ''}`} onClick={() => setCreativeSort('leads')}>Leads</button>
-                <button className={`sortbtn ${creativeSort === 'agend' ? 'active' : ''}`} onClick={() => setCreativeSort('agend')}>Agendam.</button>
-              </div>
-            </div>
-          </div>
-          <div className="creative-grid">
-            {creativesFiltered.length === 0 && <div className="table-empty" style={{ gridColumn: '1/-1' }}>Nenhum criativo no período.</div>}
-            {creativesFiltered.map((c, i) => {
-              const img = bestImg(c)
-              return (
-                <div className="creative" key={i}>
-                  {img
-                    ? <img className="creative-img" src={img} alt={c.ad_name} loading="lazy" onClick={() => setZoom({ src: img, alt: c.ad_name })} />
-                    : <div className="creative-noimg">sem imagem</div>}
-                  <div className="creative-body">
-                    <div className="creative-adname">{c.ad_name}</div>
-                    {c.headline && <div className="creative-headline">{c.headline}</div>}
-                    <div className="creative-metrics">
-                      <div className="creative-metric"><div className="m-label">Investido</div><div className="m-value">R$ {brl(c.spend)}</div></div>
-                      <div className="creative-metric"><div className="m-label">Leads</div><div className="m-value">{int(c.crm_leads)}</div></div>
-                      <div className="creative-metric"><div className="m-label">Agendam.</div><div className="m-value">{int(c.crm_agendados)}</div></div>
-                      <div className="creative-metric"><div className="m-label">Custo/Agend.</div><div className="m-value">{c.crm_agendados > 0 ? `R$ ${brl(c.spend / c.crm_agendados, 2)}` : '—'}</div></div>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </>
-      )}
+      <TabContent />
 
       <div className="muted-note">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-        "Conversões Meta" é da plataforma; "Leads" e "Agendam." vêm do CRM. Na aba Criativos, clique na imagem para ampliar.
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
+        </svg>
+        Leads, Agendamentos, Receita e ROAS vêm do CRM por coorte de lead. "—" indica dado indisponível. Na aba Criativos, clique na imagem para ampliar.
       </div>
 
       {zoom && <Lightbox src={zoom.src} alt={zoom.alt} onClose={() => setZoom(null)} />}

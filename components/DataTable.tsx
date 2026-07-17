@@ -5,8 +5,9 @@ import { useState } from 'react'
 export type Column<T> = {
   key: string
   header: string
+  tooltip?: string
   render: (row: T) => React.ReactNode
-  sortValue?: (row: T) => number | string   // valor pra ordenação (default: não ordenável)
+  sortValue?: (row: T) => number | string
   align?: 'left' | 'right'
   width?: number | string
 }
@@ -51,10 +52,12 @@ export default function DataTable<T>({ columns, rows, initialSort, totalRow }: {
             {columns.map((c) => (
               <th key={c.key}
                 onClick={() => toggleSort(c.key)}
+                title={c.tooltip}
                 style={{
                   textAlign: c.align ?? 'left',
                   cursor: c.sortValue ? 'pointer' : 'default',
                   width: c.width,
+                  borderBottom: c.tooltip ? '1px dotted currentColor' : undefined,
                 }}>
                 {c.header}
                 {sort?.key === c.key && (

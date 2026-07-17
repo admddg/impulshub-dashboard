@@ -30,7 +30,7 @@ export default function FunnelTab({ clientId, period, periodLabel, custom }: { c
     setLoading(true)
     // Atenção: esta view usa 'event_date' como coluna de data.
     fetchWindowed(
-      'v_crm_funnel_daily',
+      'v_crm_funnel_daily_v2',
       'event_date, crm_leads, crm_primeiras_conversas, crm_agendados, crm_ganhos, crm_perdidos',
       period,
       clientId,
