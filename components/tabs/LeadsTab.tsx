@@ -47,8 +47,11 @@ export default function LeadsTab({ clientId, period, custom }: {
 
   const range = useMemo(() => getRanges(period, custom ?? undefined).current, [period, custom])
   const [startISO, endISO] = useMemo(() => {
-    const end = new Date(range.end + 'T00:00:00')
-    end.setDate(end.getDate() + 1)
+    // O filtro usa .lt(), então o fim precisa ser o dia seguinte para incluir
+    // o último dia do período. Parse e aritmética em UTC: com horário local, um
+    // navegador em fuso positivo devolveria o dia errado e comeria um dia.
+    const end = new Date(range.end + 'T00:00:00Z')
+    end.setUTCDate(end.getUTCDate() + 1)
     return [range.start, end.toISOString().slice(0, 10)]
   }, [range])
 

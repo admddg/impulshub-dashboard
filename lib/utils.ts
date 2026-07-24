@@ -3,52 +3,95 @@
 // Tudo que é "cálculo puro" mora aqui, separado da tela, pra ficar fácil de ler.
 // ---------------------------------------------------------------------------
 
-// Formata uma data como 'YYYY-MM-DD' (formato que o Supabase entende no filtro).
+// Formata uma data como 'YYYY-MM-DD'. Recebe sempre datas construídas em UTC
+// meia-noite (ver diaDeHojeSP), então o slice é seguro.
 function toISODate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-export type Period = '15d' | '30d' | '90d' | 'custom'
+// O servidor roda em UTC, mas o negócio é America/Sao_Paulo. Usar new Date()
+// direto faz o dia virar às 21h no horário de Brasília. Aqui resolvemos o dia
+// civil correto no fuso do cliente e devolvemos como UTC meia-noite, para que
+// toda a aritmética de dias abaixo fique livre de fuso.
+function diaDeHojeSP(): Date {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date())
+  const [y, m, d] = partes.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d))
+}
+
+// D-1: o dashboard inteiro fecha em ontem.
+//
+// Motivo: o sync de mídia roda de madrugada e grava até D-1. Não existe linha
+// de investimento do dia corrente em nenhuma fonte. Os leads do CRM, ao
+// contrário, entram ao vivo pelo webhook. Incluir hoje significa dividir um
+// investimento que falta um dia por um número de leads completo — o CPL sai
+// artificialmente baixo e o ROAS artificialmente alto, e a distorção piora
+// conforme o dia avança.
+export function dataDeCorte(): Date {
+  const d = diaDeHojeSP()
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d
+}
+
+// 'YYYY-MM-DD' do último dia com dado fechado. Usado para travar o seletor.
+export function dataDeCorteISO(): string {
+  return toISODate(dataDeCorte())
+}
+
+// 'DD/MM' para o rótulo "Dados até" ao lado do seletor de período.
+export function dataDeCorteLabel(): string {
+  const iso = dataDeCorteISO()
+  const [, m, d] = iso.split('-')
+  return `${d}/${m}`
+}
+
+export type Period = '7d' | '15d' | '30d' | '90d' | 'custom'
 
 // Para período custom, o app passa as datas escolhidas.
 export type CustomRange = { start: string; end: string }
 
+// Períodos curtos não permitem leitura de maturação de funil (a coorte ainda
+// não teve tempo de avançar). O seletor mostra aviso quando um destes está ativo.
+export const PERIODOS_CURTOS: Period[] = ['7d']
+
 // Dado um período escolhido, devolve os dois intervalos: o atual e o anterior
 // (pra calcular o "vs. período anterior"). O anterior tem exatamente o mesmo
-// tamanho do atual, imediatamente antes dele.
+// tamanho do atual, imediatamente antes dele. Ambos terminam, no máximo, em D-1.
 export function getRanges(period: Period, custom?: CustomRange) {
-  const today = new Date()
-  const end = new Date(today)
-
-  let start = new Date(today)
+  const corte = dataDeCorte()
+  const msPerDay = 24 * 60 * 60 * 1000
 
   if (period === 'custom' && custom) {
-    start = new Date(custom.start + 'T00:00:00')
-    const customEnd = new Date(custom.end + 'T00:00:00')
-    const msPerDay = 24 * 60 * 60 * 1000
-    const days = Math.round((customEnd.getTime() - start.getTime()) / msPerDay) + 1
-    const prevEnd = new Date(start); prevEnd.setDate(start.getDate() - 1)
-    const prevStart = new Date(prevEnd); prevStart.setDate(prevEnd.getDate() - (days - 1))
+    // Trava defensiva: mesmo que uma data futura chegue aqui, o fim nunca passa
+    // do corte. O input do seletor já bloqueia, isto é a segunda camada.
+    const fimEscolhido = custom.end > toISODate(corte) ? toISODate(corte) : custom.end
+    const start = new Date(custom.start + 'T00:00:00Z')
+    const end = new Date(fimEscolhido + 'T00:00:00Z')
+    const days = Math.round((end.getTime() - start.getTime()) / msPerDay) + 1
+    const prevEnd = new Date(start); prevEnd.setUTCDate(start.getUTCDate() - 1)
+    const prevStart = new Date(prevEnd); prevStart.setUTCDate(prevEnd.getUTCDate() - (days - 1))
     return {
-      current: { start: custom.start, end: custom.end },
+      current: { start: custom.start, end: fimEscolhido },
       previous: { start: toISODate(prevStart), end: toISODate(prevEnd) },
     }
   }
 
-  // 15 dias | 30 dias | 90 dias — sempre incluindo hoje
-  const daysByPeriod: Record<'15d' | '30d' | '90d', number> = { '15d': 15, '30d': 30, '90d': 90 }
-  const totalDays = daysByPeriod[period as '15d' | '30d' | '90d'] ?? 30
-  start.setDate(end.getDate() - (totalDays - 1))
+  // 7 | 15 | 30 | 90 dias — sempre terminando em D-1, nunca em hoje
+  const daysByPeriod: Record<'7d' | '15d' | '30d' | '90d', number> =
+    { '7d': 7, '15d': 15, '30d': 30, '90d': 90 }
+  const totalDays = daysByPeriod[period as '7d' | '15d' | '30d' | '90d'] ?? 30
 
-  // duração em dias do período atual
-  const msPerDay = 24 * 60 * 60 * 1000
-  const days = Math.round((end.getTime() - start.getTime()) / msPerDay) + 1
+  const end = new Date(corte)
+  const start = new Date(corte)
+  start.setUTCDate(end.getUTCDate() - (totalDays - 1))
 
-  // período anterior: mesmo tamanho, logo antes do início do atual
   const prevEnd = new Date(start)
-  prevEnd.setDate(start.getDate() - 1)
+  prevEnd.setUTCDate(start.getUTCDate() - 1)
   const prevStart = new Date(prevEnd)
-  prevStart.setDate(prevEnd.getDate() - (days - 1))
+  prevStart.setUTCDate(prevEnd.getUTCDate() - (totalDays - 1))
 
   return {
     current: { start: toISODate(start), end: toISODate(end) },

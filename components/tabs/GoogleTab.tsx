@@ -14,6 +14,10 @@ type CampRow = {
   group_name: string
   spend: number; impressions: number; clicks: number
   crm_leads: number; crm_agendados: number
+  // Indicadores prontos do banco. NULL tem significado (não dá pra calcular)
+  // e vira "—" na tela, nunca R$ 0,00.
+  cpl: number | null
+  cost_per_agendado: number | null
 }
 
 type KwRow = {
@@ -26,11 +30,9 @@ function dm(iso: string) { const p = iso.split('-'); return `${p[2]}/${p[1]}` }
 
 // ─── helpers (contrato V2) ────────────────────────────────────────────────────
 
-function cpl(spend: number, leads: number) {
-  return leads > 0 ? `R$ ${brl(spend / leads, 2)}` : <span className="cell-muted">—</span>
-}
-function cpag(spend: number, agend: number) {
-  return agend > 0 ? `R$ ${brl(spend / agend, 2)}` : <span className="cell-muted">—</span>
+// Formatador puro: o valor já vem calculado pela RPC.
+function moneyOrDash(v: number | null) {
+  return v === null ? <span className="cell-muted">—</span> : `R$ ${brl(v, 2)}`
 }
 
 // ─── componente ───────────────────────────────────────────────────────────────
@@ -72,6 +74,9 @@ export default function GoogleTab({
         group_name: r.group_name ?? '(sem nome)',
         spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks),
         crm_leads: num(r.crm_leads ?? 0), crm_agendados: num(r.crm_agendados ?? 0),
+        cpl: r.cpl === null || r.cpl === undefined ? null : num(r.cpl),
+        cost_per_agendado: r.cost_per_agendado === null || r.cost_per_agendado === undefined
+          ? null : num(r.cost_per_agendado),
       })).sort((a, b) => b.spend - a.spend))
 
       const mediaCur = splitByDate(media.rows, media.current, media.previous).cur
@@ -121,11 +126,11 @@ export default function GoogleTab({
     { key: 'agend', header: 'Agendamentos', align: 'right',
       render: (r) => int(r.crm_agendados), sortValue: (r) => r.crm_agendados },
     { key: 'cpl', header: 'CPL', align: 'right',
-      render: (r) => cpl(r.spend, r.crm_leads),
-      sortValue: (r) => r.crm_leads > 0 ? r.spend / r.crm_leads : 0 },
+      render: (r) => moneyOrDash(r.cpl),
+      sortValue: (r) => r.cpl ?? -1 },
     { key: 'cpag', header: 'CPag', align: 'right',
-      render: (r) => cpag(r.spend, r.crm_agendados),
-      sortValue: (r) => r.crm_agendados > 0 ? r.spend / r.crm_agendados : 0 },
+      render: (r) => moneyOrDash(r.cost_per_agendado),
+      sortValue: (r) => r.cost_per_agendado ?? -1 },
   ]
 
   // ── colunas keywords ───────────────────────────────────────────────────────
@@ -165,7 +170,7 @@ export default function GoogleTab({
 
   return (
     <>
-      <CohortNote />
+      <CohortNote period={period} />
 
       <div className="grid-2">
         <div className="block">
@@ -207,7 +212,7 @@ export default function GoogleTab({
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
         </svg>
-        Leads e Agendamentos vêm do CRM por coorte. Campanhas sem ID identificável aparecem como "Sem grupo identificado" — não são removidas dos totais.
+        Leads e Agendamentos vêm do CRM por coorte. Registros sem ID técnico aparecem como "Conta não identificada" ou "Campanha não identificada" — não são removidos dos totais.
       </div>
     </>
   )

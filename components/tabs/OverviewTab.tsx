@@ -101,7 +101,10 @@ export default function OverviewTab({ clientId, period, periodLabel, custom }: {
             const spend = num(r.reported_spend)
             return {
               label: dm(r.date), Leads: num(r.cohort_leads),
-              CPL: r.spend_is_complete && paidLeads > 0 ? Math.round(spend / paidLeads * 100) / 100 : 0,
+              // null (não 0) quando não dá pra calcular: o Recharts abre um vão
+              // na linha em vez de desenhar uma queda até zero, que sugeriria
+              // "CPL zerado naquele dia" — informação falsa.
+              CPL: r.spend_is_complete && paidLeads > 0 ? Math.round(spend / paidLeads * 100) / 100 : null,
             }
           })
       )

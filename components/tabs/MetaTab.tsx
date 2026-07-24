@@ -16,6 +16,12 @@ type Row = {
   spend: number; crm_leads: number; crm_agendados: number
   acquisition_revenue: number | null; acquisition_revenue_is_complete: boolean | null
   roas_acquisition: number | null
+  // Indicadores calculados no banco. Nunca recalcular aqui: o banco devolve
+  // NULL quando a conta não faz sentido (sem investimento, sem lead pago), e
+  // esse NULL carrega informação — vira "—", não zero.
+  cpl: number | null
+  cost_per_agendado: number | null
+  cac_acquisition: number | null
   ad_name: string | null; headline: string | null
   creative_url: string | null; image_url: string | null; thumbnail_url: string | null
 }
@@ -30,8 +36,8 @@ const DIM_MAP: Record<Sub, string> = {
 // helpers
 const dash = '—'
 const money = (v: number) => `R$ ${brl(v)}`
-const cpl  = (s: number, l: number) => l > 0 ? `R$ ${brl(s / l, 2)}` : dash
-const cpag = (s: number, a: number) => a > 0 ? `R$ ${brl(s / a, 2)}` : dash
+// Formatador puro: recebe o valor já calculado pelo banco. NULL vira "—".
+const moneyOrDash = (v: number | null) => v === null ? dash : `R$ ${brl(v, 2)}`
 const receitaFmt = (v: number | null, ok: boolean | null) =>
   v === null || ok === false ? dash : `R$ ${brl(v)}`
 const roasFmt = (v: number | null, ok: boolean | null) =>
@@ -46,6 +52,9 @@ function mapRow(r: any): Row {
     acquisition_revenue: r.acquisition_revenue !== null ? num(r.acquisition_revenue) : null,
     acquisition_revenue_is_complete: r.acquisition_revenue_is_complete ?? null,
     roas_acquisition: r.roas_acquisition !== null ? num(r.roas_acquisition) : null,
+    cpl: r.cpl === null || r.cpl === undefined ? null : num(r.cpl),
+    cost_per_agendado: r.cost_per_agendado === null || r.cost_per_agendado === undefined ? null : num(r.cost_per_agendado),
+    cac_acquisition: r.cac_acquisition === null || r.cac_acquisition === undefined ? null : num(r.cac_acquisition),
     ad_name: r.ad_name ?? null, headline: r.headline ?? null,
     creative_url: r.creative_url ?? null, image_url: r.image_url ?? null,
     thumbnail_url: r.thumbnail_url ?? null,
@@ -133,13 +142,13 @@ export default function MetaTab({ clientId, period, custom }: {
       { key: 'leads', header: 'Leads', align: 'right',
         render: (r) => int(r.crm_leads), sortValue: (r) => r.crm_leads },
       { key: 'cpl', header: 'CPL', align: 'right',
-        render: (r) => { const v = cpl(r.spend, r.crm_leads); return v === dash ? <span className="cell-muted">—</span> : v },
-        sortValue: (r) => r.crm_leads > 0 ? r.spend / r.crm_leads : 0 },
+        render: (r) => r.cpl === null ? <span className="cell-muted">—</span> : moneyOrDash(r.cpl),
+        sortValue: (r) => r.cpl ?? -1 },
       { key: 'agend', header: 'Agendam.', align: 'right',
         render: (r) => int(r.crm_agendados), sortValue: (r) => r.crm_agendados },
       { key: 'cpag', header: 'CPag', align: 'right',
-        render: (r) => { const v = cpag(r.spend, r.crm_agendados); return v === dash ? <span className="cell-muted">—</span> : v },
-        sortValue: (r) => r.crm_agendados > 0 ? r.spend / r.crm_agendados : 0 },
+        render: (r) => r.cost_per_agendado === null ? <span className="cell-muted">—</span> : moneyOrDash(r.cost_per_agendado),
+        sortValue: (r) => r.cost_per_agendado ?? -1 },
       { key: 'receita', header: 'Receita', align: 'right',
         tooltip: 'Receita de aquisição por coorte de lead',
         render: (r) => { const v = receitaFmt(r.acquisition_revenue, r.acquisition_revenue_is_complete); return v === dash ? <span className="cell-muted">—</span> : v },
@@ -154,11 +163,15 @@ export default function MetaTab({ clientId, period, custom }: {
     const t = rows.reduce((a, r) => ({
       spend: a.spend + r.spend, leads: a.leads + r.crm_leads, agend: a.agend + r.crm_agendados,
     }), { spend: 0, leads: 0, agend: 0 })
+    // Guarda igual à do banco: sem investimento ou sem denominador, não existe
+    // indicador — exibe "—" em vez de um R$ 0,00 que comunicaria algo falso.
+    const razao = (num: number, den: number) =>
+      num > 0 && den > 0 ? `R$ ${brl(num / den, 2)}` : dash
     return {
       name: label, spend: money(t.spend), leads: int(t.leads),
-      cpl: t.leads > 0 ? `R$ ${brl(t.spend / t.leads, 2)}` : dash,
+      cpl: razao(t.spend, t.leads),
       agend: int(t.agend),
-      cpag: t.agend > 0 ? `R$ ${brl(t.spend / t.agend, 2)}` : dash,
+      cpag: razao(t.spend, t.agend),
       receita: dash, roas: dash,
     }
   }
@@ -270,7 +283,7 @@ export default function MetaTab({ clientId, period, custom }: {
                     <div className="creative-metric"><div className="m-label">Investido</div><div className="m-value">{money(c.spend)}</div></div>
                     <div className="creative-metric"><div className="m-label">Leads</div><div className="m-value">{int(c.crm_leads)}</div></div>
                     <div className="creative-metric"><div className="m-label">Agendam.</div><div className="m-value">{int(c.crm_agendados)}</div></div>
-                    <div className="creative-metric"><div className="m-label">Custo/Agend.</div><div className="m-value">{c.crm_agendados > 0 ? `R$ ${brl(c.spend / c.crm_agendados, 2)}` : dash}</div></div>
+                    <div className="creative-metric"><div className="m-label">Custo/Agend.</div><div className="m-value">{moneyOrDash(c.cost_per_agendado)}</div></div>
                   </div>
                 </div>
               </div>
@@ -283,7 +296,7 @@ export default function MetaTab({ clientId, period, custom }: {
 
   return (
     <>
-      <CohortNote />
+      <CohortNote period={period} />
       <div className="tabs" style={{ marginBottom: 16 }}>
         {SUBS.map((s) => (
           <button key={s} className={`tab ${sub === s ? 'active' : ''}`} onClick={() => setSub(s)}>

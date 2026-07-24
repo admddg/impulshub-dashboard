@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { getMyClients, type ClientAccess } from '@/lib/access'
+import { getMyClients, amIAgencyUser, type ClientAccess } from '@/lib/access'
 
 export default function ClientesPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [clients, setClients] = useState<ClientAccess[]>([])
+  const [ehAgencia, setEhAgencia] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -16,8 +17,9 @@ export default function ClientesPage() {
       const { data: sess } = await supabase.auth.getSession()
       if (!sess.session) { router.replace('/login'); return }
 
-      const list = await getMyClients()
+      const [list, agencia] = await Promise.all([getMyClients(), amIAgencyUser()])
       if (!alive) return
+      setEhAgencia(agencia)
       // se só tem 1 cliente, vai direto pro dashboard dele
       if (list.length === 1) {
         router.replace(`/clientes/${list[0].client_slug}/dashboard`)
@@ -45,7 +47,7 @@ export default function ClientesPage() {
             <span className="brand-name">ImpulsHub</span>
           </div>
           <div className="topbar-right">
-            <button className="signout-link" onClick={() => router.push('/operacao')}>Operação</button>
+            {ehAgencia && <button className="signout-link" onClick={() => router.push('/agencia')}>Agência</button>}
             <button className="signout" onClick={signOut}>Sair</button>
           </div>
         </div>

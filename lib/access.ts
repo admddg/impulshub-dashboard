@@ -39,3 +39,19 @@ export async function resolveClient(slug: string): Promise<ClientAccess | null> 
   }
   return (data as ClientAccess) ?? null
 }
+
+// Um usuário da agência (hoje: Caio e Igor) enxerga a área interna em /agencia.
+//
+// O critério antigo era "tem acesso a mais de um cliente", que é um proxy: no
+// dia em que um cliente tivesse duas unidades cadastradas, ele entraria no
+// painel interno. Agora quem responde é o banco, via role = 'agency' em
+// client_users. A função `private.is_agency_user()` não é alcançável pelo
+// PostgREST (só o schema public é exposto), então usamos o wrapper público.
+export async function amIAgencyUser(): Promise<boolean> {
+  const { data, error } = await supabase.rpc('am_i_agency_user')
+  if (error) {
+    console.error('[Impuls] am_i_agency_user:', error.message)
+    return false
+  }
+  return data === true
+}

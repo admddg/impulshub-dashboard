@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { resolveClient, getMyClients } from '@/lib/access'
+import { resolveClient, getMyClients, amIAgencyUser } from '@/lib/access'
 import { type Period, type CustomRange } from '@/lib/utils'
 import PeriodSelector from '@/components/PeriodSelector'
 import OverviewTab from '@/components/tabs/OverviewTab'
@@ -37,6 +37,7 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
   const [clientId, setClientId] = useState<string>('')
   const [clientName, setClientName] = useState('')
   const [multiClient, setMultiClient] = useState(false)
+  const [ehAgencia, setEhAgencia] = useState(false)
 
   const [tab, setTab] = useState<Tab>('overview')
   const [period, setPeriod] = useState<Period>('30d')
@@ -58,9 +59,12 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
       setClientId(client.client_id)
       setClientName(client.client_name)
 
-      // só mostra "trocar cliente" se o usuário realmente tiver mais de um
-      const list = await getMyClients()
-      if (alive) setMultiClient(list.length > 1)
+      // "trocar cliente" depende de ter mais de um cliente. Já o acesso à área
+      // interna depende de role = 'agency' no banco — não do número de clientes.
+      const [list, agencia] = await Promise.all([getMyClients(), amIAgencyUser()])
+      if (!alive) return
+      setMultiClient(list.length > 1)
+      setEhAgencia(agencia)
 
       setGate('ok')
     })()
@@ -82,6 +86,15 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
     if (gate === 'noauth') router.replace('/login')
   }, [gate, router])
 
+  // Esta rota é client component, então o título vem daqui em vez de metadata.
+  useEffect(() => {
+    if (gate !== 'ok') return
+    const aba = TABS.find((t) => t.id === tab)?.label ?? 'Painel'
+    document.title = clientName
+      ? `${aba} · ${clientName} · ImpulsHub`
+      : `${aba} · ImpulsHub`
+  }, [gate, tab, clientName])
+
   if (gate === 'checking' || gate === 'noauth') {
     return <div className="state"><div className="spinner" />Carregando…</div>
   }
@@ -98,7 +111,10 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
     )
   }
 
-  const periodLabel = period === '15d' ? '15d ant.' : period === '30d' ? '30d ant.' : period === '90d' ? '90d ant.' : 'per. ant.'
+  const ROTULO_ANTERIOR: Record<string, string> = {
+    '7d': '7d ant.', '15d': '15d ant.', '30d': '30d ant.', '90d': '90d ant.',
+  }
+  const periodLabel = ROTULO_ANTERIOR[period] ?? 'per. ant.'
   const showPeriod = ['overview', 'funnel', 'channels', 'meta', 'google', 'leads', 'diario'].includes(tab)
 
   return (
@@ -111,7 +127,7 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
             {clientName && <span className="brand-client">{clientName}</span>}
           </div>
           <div className="topbar-right">
-            {multiClient && <button className="signout-link" onClick={() => router.push('/operacao')}>Operação</button>}
+            {ehAgencia && <button className="signout-link" onClick={() => router.push('/agencia')}>Agência</button>}
             {multiClient && <button className="signout-link" onClick={() => router.replace('/clientes')}>Trocar cliente</button>}
             <button className="signout" onClick={signOut}>Sair</button>
           </div>

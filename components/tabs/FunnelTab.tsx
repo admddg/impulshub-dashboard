@@ -64,7 +64,7 @@ export default function FunnelTab({ clientId, period, periodLabel, custom }: { c
 
   return (
     <>
-      <CohortNote />
+      <CohortNote period={period} />
       <div className="block">
         <div className="block-head">
           <span className="block-title">Funil comercial</span>
