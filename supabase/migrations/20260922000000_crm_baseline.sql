@@ -191,6 +191,10 @@ create table crm.opportunity_stage_history (
 create index opportunity_stage_history_timeline_idx
   on crm.opportunity_stage_history (tenant_id, opportunity_id, occurred_at, created_at);
 
+create unique index opportunity_stage_history_one_compensation
+  on crm.opportunity_stage_history (tenant_id, compensates_history_id)
+  where compensates_history_id is not null;
+
 create table crm.opportunity_milestones (
   id uuid primary key default pg_catalog.gen_random_uuid(),
   tenant_id uuid not null references crm.tenants(id) on delete restrict,
@@ -247,6 +251,7 @@ create unique index commercial_outcomes_one_current
 create table crm.processed_events (
   id uuid primary key default pg_catalog.gen_random_uuid(),
   tenant_id uuid not null references crm.tenants(id) on delete restrict,
+  raw_event_id uuid not null references public.stevo_events_raw(id) on delete restrict,
   source text not null check (pg_catalog.length(pg_catalog.btrim(source)) > 0),
   external_id text not null check (pg_catalog.length(pg_catalog.btrim(external_id)) > 0),
   payload_hash text not null check (pg_catalog.length(payload_hash) >= 32),
@@ -254,7 +259,8 @@ create table crm.processed_events (
   error_code text,
   processed_at timestamptz,
   created_at timestamptz not null default pg_catalog.now(),
-  unique (tenant_id, source, external_id)
+  unique (tenant_id, source, external_id),
+  unique (tenant_id, raw_event_id)
 );
 
 insert into crm.global_pipeline_versions (id, version_no, status, published_at, created_at)
@@ -283,7 +289,7 @@ values
   ('00000000-0000-0000-0000-000000000305', 'sem_retorno', 'Sem retorno após cadência concluída', false, '2026-09-22 00:00:00+00'),
   ('00000000-0000-0000-0000-000000000306', 'nao_elegivel', 'Não elegível / sem indicação para o serviço', false, '2026-09-22 00:00:00+00'),
   ('00000000-0000-0000-0000-000000000307', 'servico_localizacao_indisponivel', 'Serviço, unidade ou localização indisponível', false, '2026-09-22 00:00:00+00'),
-  ('00000000-0000-0000-0000-000000000308', 'entrada_invalida_duplicada', 'Entrada inválida ou duplicada', false, '2026-09-22 00:00:00+00'),
+  ('00000000-0000-0000-0000-000000000308', 'entrada_invalida_duplicada', 'Entrada inválida ou duplicada — encerramento administrativo excluído da taxa comercial', false, '2026-09-22 00:00:00+00'),
   ('00000000-0000-0000-0000-000000000309', 'outro', 'Outro', true, '2026-09-22 00:00:00+00');
 
 insert into crm.tenants (id, slug, name, status, created_at)
@@ -307,6 +313,20 @@ from public.client_users cu
 join auth.users u on u.id = cu.user_id
 on conflict do nothing;
 
+do $$
+begin
+  if exists (
+    select 1
+      from public.client_users cu
+     where pg_catalog.lower(cu.role) not in (
+       'owner', 'admin', 'manager', 'integration', 'attendant', 'agency'
+     )
+  ) then
+    raise exception 'unsupported public.client_users role for CRM membership seed';
+  end if;
+end
+$$;
+
 insert into crm.tenant_memberships (id, tenant_id, profile_id, role, status, created_at)
 select
   cu.id,
@@ -318,7 +338,7 @@ select
     when 'manager' then 'manager'
     when 'integration' then 'integration'
     when 'attendant' then 'attendant'
-    else 'attendant'
+    when 'agency' then 'admin'
   end,
   case when cu.is_active then 'active' else 'suspended' end,
   '2026-09-22 00:00:00+00'::timestamptz
@@ -326,30 +346,6 @@ from public.client_users cu
 join crm.tenants t on t.id = cu.client_id
 join crm.profiles p on p.id = cu.user_id
 on conflict do nothing;
-
-create function crm.current_tenant_id()
-returns uuid
-language plpgsql
-stable
-security definer
-set search_path = ''
-as $$
-declare
-  claims jsonb;
-  tenant_text text;
-begin
-  claims := nullif(pg_catalog.current_setting('request.jwt.claims', true), '')::jsonb;
-  tenant_text := claims ->> 'tenant_id';
-  if tenant_text is null
-     or tenant_text !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then
-    return null;
-  end if;
-  return tenant_text::uuid;
-exception
-  when invalid_text_representation then
-    return null;
-end;
-$$;
 
 create function crm.is_member(p_tenant_id uuid)
 returns boolean
@@ -359,13 +355,12 @@ security definer
 set search_path = ''
 as $$
   select coalesce(
-    p_tenant_id = crm.current_tenant_id()
-    and exists (
+    exists (
       select 1
-        from crm.tenant_memberships m
-       where m.tenant_id = p_tenant_id
-         and m.profile_id = auth.uid()
-         and m.status = 'active'
+        from public.client_users cu
+       where cu.client_id = p_tenant_id
+         and cu.user_id = auth.uid()
+         and cu.is_active = true
     ),
     false
   )
@@ -390,7 +385,33 @@ declare
   stage_pipeline uuid;
   stage_code text;
   previous_contact uuid;
+  previous_status text;
+  previous_closed_at timestamptz;
+  new_lock_key bigint;
+  old_lock_key bigint;
 begin
+  new_lock_key := pg_catalog.hashtextextended(
+    new.tenant_id::text || ':' || new.contact_id::text,
+    0
+  );
+  if tg_op = 'UPDATE' then
+    old_lock_key := pg_catalog.hashtextextended(
+      old.tenant_id::text || ':' || old.contact_id::text,
+      0
+    );
+    if old_lock_key <= new_lock_key then
+      perform pg_catalog.pg_advisory_xact_lock(old_lock_key);
+      if old_lock_key <> new_lock_key then
+        perform pg_catalog.pg_advisory_xact_lock(new_lock_key);
+      end if;
+    else
+      perform pg_catalog.pg_advisory_xact_lock(new_lock_key);
+      perform pg_catalog.pg_advisory_xact_lock(old_lock_key);
+    end if;
+  else
+    perform pg_catalog.pg_advisory_xact_lock(new_lock_key);
+  end if;
+
   select s.pipeline_version_id, s.code
     into stage_pipeline, stage_code
     from crm.global_pipeline_stages s
@@ -407,14 +428,54 @@ begin
   end if;
 
   if new.previous_opportunity_id is not null then
-    select o.contact_id
-      into previous_contact
+    if new.previous_opportunity_id = new.id then
+      raise exception 'opportunity cannot reference itself as the previous cycle';
+    end if;
+
+    select o.contact_id, o.status, o.closed_at
+      into previous_contact, previous_status, previous_closed_at
       from crm.opportunities o
      where o.tenant_id = new.tenant_id
        and o.id = new.previous_opportunity_id;
     if previous_contact is distinct from new.contact_id then
       raise exception 'previous opportunity must share tenant and contact';
     end if;
+    if previous_status not in ('won', 'lost')
+       or previous_closed_at is null
+       or previous_closed_at > new.opened_at then
+      raise exception 'previous opportunity must be closed before the new cycle opens';
+    end if;
+    if exists (
+      with recursive lineage as (
+        select o.id, o.previous_opportunity_id
+          from crm.opportunities o
+         where o.tenant_id = new.tenant_id
+           and o.id = new.previous_opportunity_id
+        union
+        select o.id, o.previous_opportunity_id
+          from crm.opportunities o
+          join lineage l on l.previous_opportunity_id = o.id
+         where o.tenant_id = new.tenant_id
+      )
+      select 1 from lineage where id = new.id
+    ) then
+      raise exception 'opportunity previous-cycle chain cannot contain a cycle';
+    end if;
+  end if;
+
+  if exists (
+    select 1
+      from crm.opportunities successor
+     where successor.tenant_id = new.tenant_id
+       and successor.previous_opportunity_id = new.id
+       and (
+         successor.contact_id is distinct from new.contact_id
+         or new.status not in ('won', 'lost')
+         or new.closed_at is null
+         or new.closed_at > successor.opened_at
+       )
+  ) then
+    raise exception 'opportunity update would invalidate a later cycle';
   end if;
 
   return new;
@@ -456,6 +517,9 @@ declare
   to_position smallint;
   from_is_terminal boolean;
   compensated_at timestamptz;
+  compensated_transition_type text;
+  compensated_from_stage_id uuid;
+  compensated_to_stage_id uuid;
 begin
   select o.pipeline_version_id
     into opportunity_pipeline
@@ -476,6 +540,26 @@ begin
     raise exception 'stage history must use the opportunity pipeline version';
   end if;
 
+  if new.transition_type in ('manual', 'undo', 'correction')
+     and not exists (
+       select 1
+         from public.client_users cu
+        where cu.client_id = new.tenant_id
+          and cu.user_id = new.actor_profile_id
+          and cu.is_active = true
+     ) then
+    raise exception 'manual, undo and correction transitions require an active actor';
+  end if;
+
+  if new.transition_type in ('undo', 'correction') then
+    if new.compensates_history_id is null
+       or pg_catalog.length(pg_catalog.btrim(coalesce(new.reason, ''))) = 0 then
+      raise exception 'undo and correction require actor, reason and compensated history';
+    end if;
+  elsif new.compensates_history_id is not null then
+    raise exception 'only undo and correction may compensate history';
+  end if;
+
   if new.transition_type = 'manual'
      and to_position < from_position
      and pg_catalog.length(pg_catalog.btrim(coalesce(new.reason, ''))) = 0 then
@@ -489,8 +573,9 @@ begin
   end if;
 
   if new.compensates_history_id is not null then
-    select h.occurred_at
-      into compensated_at
+    select h.occurred_at, h.transition_type, h.from_stage_id, h.to_stage_id
+      into compensated_at, compensated_transition_type,
+           compensated_from_stage_id, compensated_to_stage_id
       from crm.opportunity_stage_history h
      where h.tenant_id = new.tenant_id
        and h.id = new.compensates_history_id
@@ -498,9 +583,63 @@ begin
     if compensated_at is null or compensated_at >= new.occurred_at then
       raise exception 'compensation must reference an earlier history row';
     end if;
+    if new.transition_type = 'undo'
+       and (
+         compensated_transition_type is distinct from 'automatic'
+         or new.from_stage_id is distinct from compensated_to_stage_id
+         or new.to_stage_id is distinct from compensated_from_stage_id
+       ) then
+      raise exception 'undo must reverse the referenced automatic transition';
+    end if;
   end if;
 
   return new;
+end;
+$$;
+
+create function crm.validate_opportunity_history_consistency()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  checked_tenant_id uuid;
+  checked_opportunity_id uuid;
+  current_stage_id uuid;
+  latest_history_stage_id uuid;
+begin
+  if tg_table_name = 'opportunities' then
+    if tg_op = 'UPDATE'
+       and new.current_stage_id is not distinct from old.current_stage_id then
+      return null;
+    end if;
+    checked_tenant_id := new.tenant_id;
+    checked_opportunity_id := new.id;
+  else
+    checked_tenant_id := new.tenant_id;
+    checked_opportunity_id := new.opportunity_id;
+  end if;
+
+  select o.current_stage_id
+    into current_stage_id
+    from crm.opportunities o
+   where o.tenant_id = checked_tenant_id
+     and o.id = checked_opportunity_id;
+
+  select h.to_stage_id
+    into latest_history_stage_id
+    from crm.opportunity_stage_history h
+   where h.tenant_id = checked_tenant_id
+     and h.opportunity_id = checked_opportunity_id
+   order by h.occurred_at desc, h.created_at desc, h.id desc
+   limit 1;
+
+  if latest_history_stage_id is null
+     or current_stage_id is distinct from latest_history_stage_id then
+    raise exception 'opportunity current stage must match its latest history row';
+  end if;
+
+  return null;
 end;
 $$;
 
@@ -513,6 +652,14 @@ declare
   note_required boolean;
   reason_active boolean;
 begin
+  if new.origin = 'manual'
+     and (
+       new.actor_profile_id is null
+       or pg_catalog.length(pg_catalog.btrim(coalesce(new.evidence, ''))) = 0
+     ) then
+    raise exception 'manual outcome requires actor and evidence';
+  end if;
+
   if new.outcome = 'lost' then
     select r.requires_note, r.active
       into note_required, reason_active
@@ -525,6 +672,100 @@ begin
       raise exception 'the selected loss reason requires a note';
     end if;
   end if;
+  return new;
+end;
+$$;
+
+create function crm.validate_opportunity_outcome_consistency()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  checked_tenant_id uuid;
+  checked_opportunity_id uuid;
+  opportunity_status text;
+  current_outcome_count integer;
+  matching_outcome_count integer;
+begin
+  if tg_table_name = 'opportunities' then
+    checked_tenant_id := new.tenant_id;
+    checked_opportunity_id := new.id;
+  elsif tg_op = 'DELETE' then
+    checked_tenant_id := old.tenant_id;
+    checked_opportunity_id := old.opportunity_id;
+  else
+    checked_tenant_id := new.tenant_id;
+    checked_opportunity_id := new.opportunity_id;
+  end if;
+
+  select o.status
+    into opportunity_status
+    from crm.opportunities o
+   where o.tenant_id = checked_tenant_id
+     and o.id = checked_opportunity_id;
+
+  if not found then
+    return null;
+  end if;
+
+  select
+    pg_catalog.count(*)::integer,
+    pg_catalog.count(*) filter (where co.outcome = opportunity_status)::integer
+    into current_outcome_count, matching_outcome_count
+    from crm.commercial_outcomes co
+   where co.tenant_id = checked_tenant_id
+     and co.opportunity_id = checked_opportunity_id
+     and co.is_current;
+
+  if opportunity_status = 'open' and current_outcome_count <> 0 then
+    raise exception 'open opportunity cannot have a current commercial outcome';
+  end if;
+
+  if opportunity_status in ('won', 'lost')
+     and (current_outcome_count <> 1 or matching_outcome_count <> 1) then
+    raise exception 'terminal opportunity requires exactly one matching current commercial outcome';
+  end if;
+
+  return null;
+end;
+$$;
+
+create function crm.validate_processed_event()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  raw_tenant_id uuid;
+  raw_payload_hash text;
+begin
+  if tg_op = 'UPDATE'
+     and (
+       new.id is distinct from old.id
+       or new.tenant_id is distinct from old.tenant_id
+       or new.raw_event_id is distinct from old.raw_event_id
+       or new.source is distinct from old.source
+       or new.external_id is distinct from old.external_id
+       or new.payload_hash is distinct from old.payload_hash
+       or new.created_at is distinct from old.created_at
+     ) then
+    raise exception 'processed event identity is immutable';
+  end if;
+
+  select r.client_id, r.payload_hash
+    into raw_tenant_id, raw_payload_hash
+    from public.stevo_events_raw r
+   where r.id = new.raw_event_id;
+
+  if raw_tenant_id is distinct from new.tenant_id then
+    raise exception 'raw event must belong to the processed event tenant';
+  end if;
+  if raw_payload_hash is distinct from new.payload_hash then
+    raise exception 'processed event hash must match raw event hash';
+  end if;
+
   return new;
 end;
 $$;
@@ -575,6 +816,16 @@ create trigger opportunity_stage_history_append_only
 before update or delete on crm.opportunity_stage_history
 for each row execute function crm.reject_append_only_mutation();
 
+create constraint trigger opportunity_stage_history_validate_current_stage
+after insert on crm.opportunity_stage_history
+deferrable initially deferred
+for each row execute function crm.validate_opportunity_history_consistency();
+
+create constraint trigger opportunities_validate_latest_history
+after update on crm.opportunities
+deferrable initially deferred
+for each row execute function crm.validate_opportunity_history_consistency();
+
 create trigger opportunity_milestones_append_only
 before update or delete on crm.opportunity_milestones
 for each row execute function crm.reject_append_only_mutation();
@@ -586,6 +837,20 @@ for each row execute function crm.validate_commercial_outcome();
 create trigger commercial_outcomes_append_only
 before update or delete on crm.commercial_outcomes
 for each row execute function crm.restrict_outcome_revision();
+
+create constraint trigger opportunities_validate_outcome_consistency
+after insert or update on crm.opportunities
+deferrable initially deferred
+for each row execute function crm.validate_opportunity_outcome_consistency();
+
+create constraint trigger commercial_outcomes_validate_opportunity_consistency
+after insert or update or delete on crm.commercial_outcomes
+deferrable initially deferred
+for each row execute function crm.validate_opportunity_outcome_consistency();
+
+create trigger processed_events_validate
+before insert or update on crm.processed_events
+for each row execute function crm.validate_processed_event();
 
 alter table crm.tenants enable row level security;
 alter table crm.profiles enable row level security;
@@ -615,7 +880,6 @@ create policy tenant_read_profiles on crm.profiles
       select 1
         from crm.tenant_memberships m
        where m.profile_id = profiles.id
-         and m.tenant_id = crm.current_tenant_id()
          and m.status = 'active'
          and crm.is_member(m.tenant_id)
     )
@@ -688,5 +952,4 @@ grant select on all tables in schema crm to authenticated;
 grant all privileges on all tables in schema crm to service_role;
 
 revoke all on all functions in schema crm from public, anon, authenticated;
-grant execute on function crm.current_tenant_id() to authenticated, service_role;
 grant execute on function crm.is_member(uuid) to authenticated, service_role;
