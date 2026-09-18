@@ -58,9 +58,22 @@ Falta: a **aba CRM** (IMP-206/207) e o **adaptador de eventos** (IMP-205).
 
 ## ⚠️ A restrição que muda como se escreve o frontend
 
-No schema `crm`, o papel `authenticated` tem **apenas `select`**. Escrita é exclusiva de `service_role`.
+**O navegador não alcança o schema `crm` de jeito nenhum — nem para ler.**
 
-**O navegador não faz `insert` nem `update`.** Mover card, atribuir dono, registrar ganho: tudo por RPC (`SECURITY DEFINER`) ou rota server-side.
+O PostgREST só expõe o schema `public`, e `pgrst.db_schemas` não está definido neste projeto. Hoje não existe uma única view ou função em `public` que toque o `crm`: `supabase.from('opportunities')` não resolve nem para `select`.
+
+O grant de `select` que o `authenticated` tem nas 14 tabelas do `crm` é real, mas inalcançável pelo cliente HTTP. Ele serve para que views em `public` com `security_invoker = true` leiam o `crm` em nome do usuário, com a RLS valendo.
+
+Portanto o caminho é:
+
+| | |
+|---|---|
+| **Leitura** | views em `public`, `security_invoker = true`, `grant select to authenticated` |
+| **Escrita** | funções em `public`, `SECURITY DEFINER`, `grant execute to authenticated`, com `actor_profile_id := auth.uid()` |
+
+O contrato completo está em [`docs/CONTRATO-TELA-CRM.md`](docs/CONTRATO-TELA-CRM.md).
+
+Escrita direta continua exclusiva de `service_role` — o parser e o cron usam esse caminho.
 
 Três camadas, todas no banco:
 1. **Grant** — `authenticated` só lê
