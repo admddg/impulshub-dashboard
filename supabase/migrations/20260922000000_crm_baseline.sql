@@ -1,6 +1,8 @@
 -- IMP-203: clean CRM baseline in the dedicated schema.
 -- Existing public/auth objects are dependencies only; this migration does not create or mutate them.
 
+set local lock_timeout = '5s';
+
 create schema crm;
 
 revoke all on schema crm from public;
@@ -24,7 +26,7 @@ create table crm.tenant_memberships (
   id uuid primary key default pg_catalog.gen_random_uuid(),
   tenant_id uuid not null references crm.tenants(id) on delete restrict,
   profile_id uuid not null references crm.profiles(id) on delete restrict,
-  role text not null check (role in ('owner', 'admin', 'manager', 'attendant', 'integration')),
+  role text not null check (role in ('owner', 'admin', 'manager', 'attendant', 'integration', 'viewer')),
   status text not null default 'active' check (status in ('active', 'suspended', 'removed')),
   created_at timestamptz not null default pg_catalog.now(),
   unique (tenant_id, profile_id)
@@ -303,6 +305,7 @@ select
   end,
   '2026-09-22 00:00:00+00'::timestamptz
 from public.clients_base cb
+where pg_catalog.lower(cb.status) <> 'inactive'
 on conflict do nothing;
 
 insert into crm.profiles (id, created_at)
@@ -319,7 +322,7 @@ begin
     select 1
       from public.client_users cu
      where pg_catalog.lower(cu.role) not in (
-       'owner', 'admin', 'manager', 'integration', 'attendant', 'agency'
+       'owner', 'admin', 'manager', 'integration', 'attendant', 'viewer', 'agency'
      )
   ) then
     raise exception 'unsupported public.client_users role for CRM membership seed';
@@ -338,6 +341,7 @@ select
     when 'manager' then 'manager'
     when 'integration' then 'integration'
     when 'attendant' then 'attendant'
+    when 'viewer' then 'viewer'
     when 'agency' then 'admin'
   end,
   case when cu.is_active then 'active' else 'suspended' end,
@@ -547,6 +551,7 @@ begin
         where cu.client_id = new.tenant_id
           and cu.user_id = new.actor_profile_id
           and cu.is_active = true
+          and pg_catalog.lower(cu.role) <> 'viewer'
      ) then
     raise exception 'manual, undo and correction transitions require an active actor';
   end if;
@@ -654,10 +659,17 @@ declare
 begin
   if new.origin = 'manual'
      and (
-       new.actor_profile_id is null
+       not exists (
+         select 1
+           from public.client_users cu
+          where cu.client_id = new.tenant_id
+            and cu.user_id = new.actor_profile_id
+            and cu.is_active = true
+            and pg_catalog.lower(cu.role) <> 'viewer'
+       )
        or pg_catalog.length(pg_catalog.btrim(coalesce(new.evidence, ''))) = 0
      ) then
-    raise exception 'manual outcome requires actor and evidence';
+    raise exception 'manual outcome requires active write actor and evidence';
   end if;
 
   if new.outcome = 'lost' then
