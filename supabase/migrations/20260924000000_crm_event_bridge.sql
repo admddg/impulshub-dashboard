@@ -2,8 +2,31 @@
 --
 -- A ponte escreve events_raw, events_normalized e conversion_outbox na mesma
 -- transacao da oportunidade. Nenhum webhook ou workflow n8n e alterado.
+--
+-- ENTRA INERTE, DE PROPOSITO. Royal, QuickClean e Central ja emitem conversao
+-- pelo GHL -- 394 jobs nos ultimos 7 dias. Emitir tambem pelo CRM entregaria a
+-- mesma conversao a Meta por dois caminhos e corromperia a otimizacao de
+-- campanha dos maiores clientes, de forma irreversivel: evento enviado para a
+-- Conversions API nao volta.
+--
+-- clients_base.crm_emits_conversions e a chave. Default false: a base antiga
+-- continua no GHL, e o cliente novo -- que nunca teve GHL -- entra com true.
+-- E a ADR-0015 aplicada no banco.
 
 set local lock_timeout = '5s';
+
+alter table public.clients_base
+  add column if not exists crm_emits_conversions boolean not null default false;
+
+comment on column public.clients_base.crm_emits_conversions is
+  'Quando true, movimentos de etapa no schema crm emitem conversao. Mantenha false enquanto o cliente emitir pelo GHL: os dois caminhos juntos duplicam a conversao na Meta.';
+
+-- A dedupe da ponte consulta events_normalized por opportunity_id a cada
+-- movimento, e o parser roda de minuto em minuto. Sem indice e varredura em
+-- 13.730 linhas por movimento.
+create index if not exists events_normalized_crm_opportunity_idx
+  on public.events_normalized (client_id, opportunity_id, event_code)
+  where source_system = 'impuls_crm';
 
 create function crm.emit_opportunity_stage_event()
 returns trigger
@@ -20,6 +43,7 @@ declare
   v_ghl_location_id  text;
   v_location_name    text;
   v_client_name      text;
+  v_emits            boolean;
   v_contact_name     text;
   v_contact_phone    text;
   v_contact_email    text;
@@ -30,6 +54,17 @@ declare
 begin
   if tg_op = 'UPDATE'
      and new.current_stage_id is not distinct from old.current_stage_id then
+    return new;
+  end if;
+
+  select cb.ghl_location_id, cb.ghl_location_name, cb.client_name, cb.crm_emits_conversions
+    into v_ghl_location_id, v_location_name, v_client_name, v_emits
+    from public.clients_base cb
+   where cb.id = new.tenant_id;
+
+  -- Cliente ainda emite conversao pelo GHL: a ponte nao faz nada.
+  -- Guarda antes da dedupe de proposito, para nao pagar a consulta.
+  if not coalesce(v_emits, false) then
     return new;
   end if;
 
@@ -51,6 +86,10 @@ begin
     raise exception 'IMP-205 cannot map CRM stage % to an event code', new.current_stage_id;
   end if;
 
+  if pg_catalog.length(pg_catalog.btrim(coalesce(v_ghl_location_id, ''))) = 0 then
+    raise exception 'IMP-205 ghl_location_id is required for tenant %', new.tenant_id;
+  end if;
+
   -- A oportunidade e bloqueada pelo proprio INSERT/UPDATE. A consulta abaixo,
   -- portanto, torna reentrada na mesma etapa um no-op serializado sem precisar
   -- alterar as tabelas public nem acoplar a ponte ao raw_event_id do Stevo.
@@ -63,15 +102,6 @@ begin
        and en.event_code = v_event_code
   ) then
     return new;
-  end if;
-
-  select cb.ghl_location_id, cb.ghl_location_name, cb.client_name
-    into v_ghl_location_id, v_location_name, v_client_name
-    from public.clients_base cb
-   where cb.id = new.tenant_id;
-
-  if pg_catalog.length(pg_catalog.btrim(coalesce(v_ghl_location_id, ''))) = 0 then
-    raise exception 'IMP-205 ghl_location_id is required for tenant %', new.tenant_id;
   end if;
 
   -- Espelha a grafia e o funnel_step mais recentes do GHL. A ponte nao cria
@@ -295,8 +325,10 @@ after insert or update of current_stage_id on crm.opportunities
 for each row execute function crm.emit_opportunity_stage_event();
 
 comment on function crm.emit_opportunity_stage_event() is
-  'IMP-205: bridge transacional de movimentos do CRM para events_raw, events_normalized e conversion_outbox.';
+  'IMP-205: bridge transacional de movimentos do CRM para events_raw, events_normalized e conversion_outbox. Inerte enquanto clients_base.crm_emits_conversions for false.';
 
 -- DOWN (executar em uma transacao):
 -- drop trigger if exists opportunities_emit_stage_event on crm.opportunities;
 -- drop function if exists crm.emit_opportunity_stage_event();
+-- drop index if exists public.events_normalized_crm_opportunity_idx;
+-- alter table public.clients_base drop column if exists crm_emits_conversions;
