@@ -36,14 +36,50 @@ Tocar em qualquer uma dessas sem tarefa explícita é fora de escopo.
 
 ```
   Stevo ──► stevo_events_raw ──► parser ──► schema crm ──┐
-                (enxuto, 14 dias)   (Postgres)           │
+                 (enxuto)         (Postgres)             │
                                                          ├──► este painel
   Meta/Google ──► n8n 2.1/2.2 ──► public ──► views V2 ───┤     · abas de resultado (existem)
-                                                         │     · aba CRM (nova)
+                                                         │     · aba CRM (a construir)
                                       crm ──► n8n 1.1 ──►└──► Meta / Google Conversions
 ```
 
-Novo: o schema `crm`, o parser do Stevo, a aba CRM, o adaptador de eventos. Só isso.
+## Estado em 18/09/2026
+
+Já **em produção** no projeto `Clients_Base` (`mtxnwtqwfagjzkvgsncs`):
+
+| Peça | Estado |
+|---|---|
+| Schema `crm`, 14 tabelas, RLS nas 14 | ✅ |
+| Parser do Stevo | ✅ roda a cada minuto por `pg_cron` |
+| Dados | 621 contatos, 240 oportunidades, 8.854 atividades, 3 clientes |
+| Atribuição de mídia na oportunidade | ✅ `ctwa_clid`, `meta_ad_id`, `conversion_source` |
+
+Falta: a **aba CRM** (IMP-206/207) e o **adaptador de eventos** (IMP-205).
+
+## ⚠️ A restrição que muda como se escreve o frontend
+
+No schema `crm`, o papel `authenticated` tem **apenas `select`**. Escrita é exclusiva de `service_role`.
+
+**O navegador não faz `insert` nem `update`.** Mover card, atribuir dono, registrar ganho: tudo por RPC (`SECURITY DEFINER`) ou rota server-side.
+
+Três camadas, todas no banco:
+1. **Grant** — `authenticated` só lê
+2. **RLS** — leitura escopada por `crm.is_member(tenant_id)`
+3. **Trigger** — ação manual exige ator ativo e não-`viewer`
+
+## Invariantes que o banco impõe
+
+- **Valor ausente permanece pendente, nunca zero.** Há `CHECK` que recusa `value=0` com `value_status='valid'`
+- **Todo Perdido referencia um dos 9 motivos canônicos.** Só `outro` exige observação
+- **Ganho e Perdido são terminais**
+- **Regressão manual exige motivo e não apaga marco.** Por isso `opportunity_milestones` é separada de `opportunity_stage_history`
+- **`viewer` não escreve.** Produção tem 10 `admin` e 3 `viewer`
+
+## Identidade de contato — verificado nos dados reais
+
+- Vem **sempre** de `data.Info.Chat`. **Nunca** de `Sender`, que no outbound é `<dígitos>@lid` — o dispositivo do atendente
+- **Sem normalização do nono dígito.** Zero colisões em 605 números reais; o JID do WhatsApp já é canônico
+- **Contato ≠ oportunidade.** Oportunidade só com entrada comercial (mensagem recebida com `conversionSource`). Sem essa regra o pipeline vira ~75% ruído
 
 ## Regras
 
