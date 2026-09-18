@@ -96,10 +96,16 @@ declare
   v_push             text;
   v_texto            text;
   v_msg              jsonb;
+  v_ctx              jsonb;
+  v_ar               jsonb;
   v_msg_id           text;
   v_ocorrido         timestamptz;
   v_conv_source      text;
   v_ctwa             text;
+  v_ad_id            text;
+  v_src_url          text;
+  v_titulo           text;
+  v_entry            text;
   v_contato_id       uuid;
   v_oportunidade_id  uuid;
   v_etapa_atual      uuid;
@@ -148,9 +154,14 @@ begin
     v_msg         := ev.payload #> '{data,Message}';
     v_msg_id      := ev.payload #>> '{data,Info,ID}';
     v_ocorrido    := coalesce(ev.event_timestamp, ev.received_at);
-    v_conv_source := ev.payload #>> '{data,Message,extendedTextMessage,contextInfo,conversionSource}';
-    v_ctwa        := crm.stevo_ctwa_clid(
-                       ev.payload #>> '{data,Message,extendedTextMessage,contextInfo,conversionData}');
+    v_ctx         := ev.payload #> '{data,Message,extendedTextMessage,contextInfo}';
+    v_ar          := v_ctx #> '{externalAdReply}';
+    v_conv_source := v_ctx #>> '{conversionSource}';
+    v_ctwa        := crm.stevo_ctwa_clid(v_ctx #>> '{conversionData}');
+    v_entry       := v_ctx #>> '{entryPointConversionSource}';
+    v_ad_id       := v_ar  #>> '{sourceID}';
+    v_src_url     := v_ar  #>> '{sourceURL}';
+    v_titulo      := v_ar  #>> '{title}';
 
     if coalesce(v_grupo, false) then
       update public.stevo_events_raw set parse_status = 'skipped_group' where id = ev.id;
@@ -237,10 +248,13 @@ begin
     -- Conversa sem atribuicao gera contato e atividade, nunca oportunidade.
     if v_oportunidade_id is null and not v_de_mim and v_conv_source is not null then
       insert into crm.opportunities
-        (tenant_id, contact_id, pipeline_version_id, current_stage_id, title, status, opened_at)
+        (tenant_id, contact_id, pipeline_version_id, current_stage_id, title, status, opened_at,
+         ctwa_clid, conversion_source, meta_ad_id, source_url, ad_title,
+         entry_point_conversion_source)
       values
         (ev.client_id, v_contato_id, v_pipeline_id, v_stage_lead,
-         coalesce(v_push, v_numero), 'open', v_ocorrido)
+         coalesce(v_push, v_numero), 'open', v_ocorrido,
+         v_ctwa, v_conv_source, v_ad_id, v_src_url, v_titulo, v_entry)
       returning id into v_oportunidade_id;
 
       v_etapa_atual := v_stage_lead;
@@ -256,7 +270,7 @@ begin
         (tenant_id, opportunity_id, kind, origin, evidence, occurred_at)
       values
         (ev.client_id, v_oportunidade_id, 'lead_received', 'sistema',
-         'whatsapp:' || v_conv_source || coalesce(' ctwa:' || v_ctwa, ''), v_ocorrido);
+         'whatsapp:' || v_conv_source || coalesce(' ad:' || v_ad_id, ''), v_ocorrido);
 
       oportunidades_criadas := oportunidades_criadas + 1;
     end if;
