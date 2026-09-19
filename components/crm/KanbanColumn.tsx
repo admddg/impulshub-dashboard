@@ -114,9 +114,15 @@ export default function KanbanColumn({
               <div key={card.opportunity_id} className="crm-card">
                 <button className="crm-card-open" onClick={() => onOpen(card)}>
                   <span className="crm-card-name">{card.contact_name || card.title}</span>
-                  {card.campaign_name && (
-                    <span className="crm-card-ad" title={card.campaign_name}>{card.campaign_name}</span>
-                  )}
+                  {/* A linha do anúncio existe SEMPRE, mesmo vazia. Quando ela
+                      era condicional, o card sem campanha tinha uma estrutura
+                      diferente no DOM — e nenhuma regra de CSS alcança um
+                      elemento que não existe. São poucos cards (4 no sistema
+                      inteiro), raros o bastante para não aparecer por acaso e
+                      quebrar a coluna depois. */}
+                  <span className="crm-card-ad" title={card.campaign_name ?? ''}>
+                    {card.campaign_name ?? ''}
+                  </span>
                   <span className="crm-card-meta">
                     {card.owner_name ? card.owner_name : 'Sem proprietário'}
                     {' · '}

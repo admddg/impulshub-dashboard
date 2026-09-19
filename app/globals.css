@@ -569,24 +569,33 @@ footer{padding:28px 0 40px;color:var(--ink-faint);font-size:12px;text-align:cent
 .crm-col-more:hover:not(:disabled){border-color:var(--petrol);color:var(--petrol)}
 .crm-col-more:disabled{opacity:.6;cursor:not-allowed}
 
-.crm-card{background:var(--surface);border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow);overflow:hidden}
+/* `flex:0 0 auto` e o que conserta o card fatiado, e nao e detalhe.
+   `.crm-col-body` e um flex column com altura limitada pelo `max-height` da
+   coluna. Item flex tem `flex-shrink:1` por omissao, entao o Chrome comprimia
+   os cards para caber em vez de deixar a coluna rolar: medido em 20px por card
+   na Royal em Atendimento e 32px na Central, com o overflow:hidden daqui
+   cortando o conteudo no meio da linha. Sem encolher, a coluna transborda e o
+   `overflow-y:auto` do body faz o que devia fazer desde o inicio. */
+.crm-card{flex:0 0 auto;background:var(--surface);border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow);overflow:hidden}
 /* Altura uniforme: sem o clamp, um nome longo quebrava em duas linhas, o card
    crescia e o overflow:hidden do .crm-card cortava o resto. Coluna com cards
    de alturas diferentes fica ilegivel na Royal. */
-/* `height` FIXO, nao `min-height`: o nome da campanha pode ocupar uma ou duas
-   linhas, e com min-height os cards voltariam a ter alturas diferentes — que e
-   exatamente o que foi corrigido antes. Com altura fixa mais `margin-top:auto`
-   no meta, card curto e card longo ocupam o mesmo espaco e a ultima linha fica
-   alinhada nos dois.
-   Orcamento dos 120px: 26 de padding + 19.5 do nome + 6 + 33.75 das duas
-   linhas de campanha + 18 do meta = ~103. A folga vai para o `auto`. */
-.crm-card-open{display:flex;flex-direction:column;justify-content:flex-start;height:120px;width:100%;overflow:hidden;text-align:left;background:none;border:0;padding:13px 14px;cursor:pointer;font:inherit}
+/* RESERVA LINHA, nao limita pixel.
+   `height:120px` no contêiner foi o erro anterior: altura fixa com
+   overflow:hidden nao empurra o excesso, corta no meio da linha. Aqui a altura
+   do card e a SOMA de blocos que declaram quantas linhas ocupam, entao todos
+   os cards fecham igual sem nada para cortar.
+   Cada bloco declara `height` em `em` da propria fonte: e o que impede um
+   emoji com zero-width joiner (`Matheus Ruan 🏴‍☠️`, `magnivaldo🚴🏻‍♂️…`) de
+   inflar a caixa de linha muito alem do line-height e estourar o card. */
+.crm-card-open{display:flex;flex-direction:column;justify-content:flex-start;height:auto;width:100%;text-align:left;background:none;border:0;padding:13px 14px;cursor:pointer;font:inherit}
 .crm-card-open:hover{background:#fafbfb}
-.crm-card-name{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word;font-size:15px;font-weight:600;color:var(--ink);line-height:1.3}
-/* Duas linhas: "ROYAL ODONTOLOGIA - IMPLANTES ..." numa linha so nao dizia
-   qual anuncio era. O clamp poe as reticencias sozinho. */
-.crm-card-ad{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;overflow:hidden;word-break:break-word;font-size:12.5px;line-height:1.35;color:var(--ink-soft);margin-top:6px}
-.crm-card-meta{display:block;font-size:12px;color:var(--ink-faint);margin-top:auto}
+.crm-card-name{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word;height:1.45em;line-height:1.45;font-size:15px;font-weight:600;color:var(--ink)}
+/* Duas linhas reservadas mesmo quando o texto tem uma so, ou nenhuma: e o que
+   faz o card sem campanha ter a mesma altura do vizinho. "ROYAL ODONTOLOGIA -
+   IMPLANTES ..." numa linha so nao dizia qual anuncio era. */
+.crm-card-ad{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;overflow:hidden;word-break:break-word;height:2.7em;line-height:1.35;font-size:12.5px;color:var(--ink-soft);margin-top:6px}
+.crm-card-meta{display:block;height:1.45em;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--ink-faint);margin-top:6px}
 .crm-card-next{width:100%;border:0;border-top:1px solid var(--line);background:var(--bg);padding:10px;font:inherit;font-size:12.5px;font-weight:600;color:var(--petrol);cursor:pointer}
 .crm-card-next:hover:not(:disabled){background:var(--petrol);color:#fff}
 .crm-card-next:disabled{opacity:.6;cursor:not-allowed}
