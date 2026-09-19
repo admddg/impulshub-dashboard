@@ -5,6 +5,7 @@ import {
   moveStage, registerWon, registerLost, fetchCard,
   type BoardCount, type CrmCard, type LossReason, type StageCode,
 } from '@/lib/crm'
+import { parseValorMonetarioBR } from '@/lib/crm-money'
 
 // As ações de escrita do card. Só renderiza para quem pode escrever — o
 // `viewer` enxerga o card inteiro e não encontra botão, em vez de clicar e
@@ -92,7 +93,9 @@ export default function MoveActions({
 
   function ganhar() {
     if (!evidencia.trim()) { setErroLocal('A observação é obrigatória.'); return }
-    aplica(registerWon(card.opportunity_id, evidencia, card.stage_version, valor))
+    const valorInterpretado = parseValorMonetarioBR(valor)
+    if (!valorInterpretado.ok) { setErroLocal(valorInterpretado.mensagem); return }
+    aplica(registerWon(card.opportunity_id, evidencia, card.stage_version, valorInterpretado.valor))
   }
 
   function perder() {
@@ -159,8 +162,8 @@ export default function MoveActions({
             type="text"
             inputMode="decimal"
             value={valor}
-            onChange={(e) => setValor(e.target.value)}
-            placeholder="Deixe em branco se ainda não souber"
+            onChange={(e) => { setValor(e.target.value); setErroLocal('') }}
+            placeholder="Ex.: 1.234,56 ou deixe em branco"
           />
           <p className="crm-hint">
             Em branco, o valor fica <b>pendente</b> — não vira zero. Um ganho de R$ 0,00

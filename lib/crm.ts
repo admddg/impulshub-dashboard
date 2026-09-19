@@ -2,6 +2,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { diaDeHojeSPISO } from '@/lib/utils'
+import { valorMonetarioRpcEhValido } from '@/lib/crm-money'
 
 // Porta única de entrada do CRM. Tudo que a aba lê ou escreve passa por aqui.
 //
@@ -569,24 +570,27 @@ export function setOwner(opportunityId: string, ownerProfileId: string | null): 
   })
 }
 
-// `valor` chega como string vinda do input. Vazio vira null — NUNCA zero.
-// `Number('')` é 0, e o banco aceitaria como valor informado: seria uma venda
-// de R$ 0,00 em produção, que é pior que valor nenhum.
+// O valor já chega validado pela fronteira da UI. `null` significa pendente;
+// um número representa o valor exato enviado para a RPC.
 export function registerWon(
   opportunityId: string,
   evidence: string,
   expectedStageVersion: number,
-  valor: string
+  valor: number | null
 ): Promise<ResultadoAcao> {
-  const limpo = valor.trim()
-  const numero = limpo === '' ? null : Number(limpo.replace(/\./g, '').replace(',', '.'))
+  if (!valorMonetarioRpcEhValido(valor)) {
+    return Promise.resolve({
+      card: null,
+      erro: { codigo: 'CRM_INVALID_VALUE', mensagem: MENSAGENS.CRM_INVALID_VALUE },
+    })
+  }
 
   return chamaRpc('crm_register_won', {
     p_opportunity_id: opportunityId,
     p_evidence: evidence.trim(),
     p_expected_stage_version: expectedStageVersion,
-    p_value: numero,
-    p_currency: numero === null ? null : 'BRL',
+    p_value: valor,
+    p_currency: valor === null ? null : 'BRL',
   })
 }
 
