@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import {
   fetchMyRole, fetchOwners, fetchLossReasons, fetchBoardCounts,
-  temFiltro, intervaloDoPreset, FILTROS_VAZIOS, SEM_PROPRIETARIO,
+  temFiltro, intervaloDoPreset, filtrosPadrao, PRESET_PADRAO, FILTROS_VAZIOS, SEM_PROPRIETARIO,
   type BoardCount, type CrmCard, type CrmFiltros, type CrmOwner, type LossReason,
   type PresetData,
 } from '@/lib/crm'
@@ -55,11 +55,12 @@ export default function CrmTab({ clientId }: { clientId: string }) {
   const [lossReasons, setLossReasons] = useState<LossReason[]>([])
   const [aberto, setAberto] = useState<CrmCard | null>(null)
   const [aviso, setAviso] = useState('')
-  const [filtros, setFiltros] = useState<CrmFiltros>(FILTROS_VAZIOS)
+  // A aba abre nos últimos 7 dias — ver PRESET_PADRAO em lib/crm.ts.
+  const [filtros, setFiltros] = useState<CrmFiltros>(filtrosPadrao)
 
   // Estado só de interface: qual botão está aceso. A verdade do filtro continua
   // sendo `filtros.de` / `filtros.ate` — o preset apenas os preenche.
-  const [preset, setPreset] = useState<PresetData>('todos')
+  const [preset, setPreset] = useState<PresetData>(PRESET_PADRAO)
 
   // Muda a cada ação de escrita e a cada troca de filtro. As colunas observam
   // e voltam para a primeira página: sem isso, trocar o filtro deixaria a
@@ -72,8 +73,10 @@ export default function CrmTab({ clientId }: { clientId: string }) {
     setCarregandoRef(true)
     setAberto(null)
     setAviso('')
-    setFiltros(FILTROS_VAZIOS)
-    setPreset('todos')
+    // Trocar de cliente volta ao padrão. `filtrosPadrao()` devolve o mesmo
+    // objeto enquanto o dia não vira, então isto não dispara recarga extra.
+    setFiltros(filtrosPadrao())
+    setPreset(PRESET_PADRAO)
 
     Promise.all([fetchMyRole(clientId), fetchOwners(clientId), fetchLossReasons()])
       .then(([role, owners, reasons]) => {

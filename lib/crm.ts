@@ -191,6 +191,31 @@ export function intervaloDoPreset(preset: PresetData): { de: string; ate: string
   return { de: somaDias(ate, -(dias - 1)), ate }
 }
 
+// A aba abre nos últimos 7 dias, não em tudo.
+//
+// A razão é de operação, não de velocidade: o filtro não deixa a tela mais
+// rápida — a coluna busca sempre 20 cards e a contagem vem sempre agregada,
+// com ou sem filtro. O que muda é o que o atendente vê primeiro, que é a fila
+// da semana em vez do histórico inteiro.
+//
+// O custo é real e está à vista: card aberto há mais de 7 dias não aparece na
+// abertura. Medido em 19/09 — 21 na Royal, 13 na QuickClean, 0 na Central.
+// Por isso a barra sempre mostra o intervalo por extenso e "Todos" fica a um
+// clique: quem abrir não pode achar que o resto sumiu.
+export const PRESET_PADRAO: PresetData = '7d'
+
+let padraoEmCache: CrmFiltros | null = null
+
+// Devolve o MESMO objeto enquanto o dia não virar, para que reaplicar o padrão
+// não dispare uma recarga à toa.
+export function filtrosPadrao(): CrmFiltros {
+  const { de, ate } = intervaloDoPreset(PRESET_PADRAO)
+  if (!padraoEmCache || padraoEmCache.de !== de || padraoEmCache.ate !== ate) {
+    padraoEmCache = { de, ate, owner: '' }
+  }
+  return padraoEmCache
+}
+
 // Colunas pedidas explicitamente: `select('*')` numa view larga traz o
 // ctwa_clid inteiro (400+ caracteres) em toda linha do kanban sem motivo.
 const CARD_COLS =
