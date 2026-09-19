@@ -1,20 +1,21 @@
 'use client'
 
 import KanbanColumn from '@/components/crm/KanbanColumn'
-import type { BoardCount, CrmCard } from '@/lib/crm'
+import type { BoardCount, CrmCard, CrmFiltros } from '@/lib/crm'
 
-// As 6 colunas. A ordem, os rótulos e as contagens vêm de
-// `v_crm_board_counts_v1` — o frontend não conhece o pipeline, só desenha o
-// que o banco devolve. Se um dia o pipeline mudar, esta tela acompanha
-// sozinha.
+// As 6 colunas. A ordem, os rótulos e as contagens vêm de `crm_board_counts`,
+// já com o filtro aplicado — o frontend não conhece o pipeline nem conta
+// linha, só desenha o que o banco devolve. Se um dia o pipeline mudar, esta
+// tela acompanha sozinha.
 
 export default function KanbanBoard({
-  clientId, stages, canWrite, resetToken, onOpen, onActed, onAviso,
+  clientId, stages, canWrite, resetToken, filtros, onOpen, onActed, onAviso,
 }: {
   clientId: string
   stages: BoardCount[]
   canWrite: boolean
   resetToken: number
+  filtros: CrmFiltros
   onOpen: (card: CrmCard) => void
   onActed: () => void
   onAviso: (msg: string) => void
@@ -38,6 +39,7 @@ export default function KanbanBoard({
           nextStage={proxima(stage)}
           canWrite={canWrite}
           resetToken={resetToken}
+          filtros={filtros}
           onOpen={onOpen}
           onActed={onActed}
           onAviso={onAviso}

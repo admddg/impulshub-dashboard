@@ -649,3 +649,18 @@ footer{padding:28px 0 40px;color:var(--ink-faint);font-size:12px;text-align:cent
   .crm-tl-item{grid-template-columns:1fr}
   .crm-actions-row{flex-direction:column}
 }
+
+/* Filtros do topo da aba CRM (IMP-212). Valem para o kanban; a contagem de
+   cada coluna e os cards usam o mesmo recorte, pela mesma semantica de data. */
+.crm-filters{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:11px 13px}
+.crm-filter{display:flex;flex-direction:column;gap:4px}
+.crm-filter label{font-size:11px;font-weight:600;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.04em}
+.crm-filter input,.crm-filter select{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 11px;font:inherit;font-size:13px;color:var(--ink)}
+.crm-filter input:focus,.crm-filter select:focus{outline:none;border-color:var(--petrol);box-shadow:0 0 0 3px rgba(0,49,61,.08)}
+.crm-filters-clear{flex:0 0 auto}
+
+@media (max-width:640px){
+  .crm-filters{align-items:stretch}
+  .crm-filter{flex:1 1 100%}
+  .crm-filter input,.crm-filter select{width:100%}
+}

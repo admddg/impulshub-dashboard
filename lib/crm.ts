@@ -127,6 +127,44 @@ export type LossReason = {
 
 export type MyRole = { client_id: string; role: string | null; can_write: boolean }
 
+// Filtros do topo da aba. `owner` é um campo só de propósito: os três estados
+// são mutuamente exclusivos e o banco trata `p_unassigned` com precedência
+// sobre `p_owner_profile_id`, então dois campos separados só criariam a
+// chance de mandar os dois e descobrir a precedência do jeito difícil.
+//   ''      → todos
+//   'none'  → sem proprietário
+//   <uuid>  → aquele proprietário
+export type CrmFiltros = {
+  de: string // 'YYYY-MM-DD'; '' = sem limite inferior
+  ate: string // 'YYYY-MM-DD'; '' = sem limite superior
+  owner: string
+}
+
+export const SEM_PROPRIETARIO = 'none'
+
+// Constante compartilhada, não literal novo a cada chamada: assim
+// `setFiltros(FILTROS_VAZIOS)` com filtro já vazio não dispara recarga.
+export const FILTROS_VAZIOS: CrmFiltros = { de: '', ate: '', owner: '' }
+
+export function temFiltro(f: CrmFiltros): boolean {
+  return !!(f.de || f.ate || f.owner)
+}
+
+// O dia seguinte, em aritmética de data pura e em UTC.
+//
+// É isto que faz a contagem bater com os cards. `crm_board_counts` usa
+// `opened_at < (p_opened_to + 1)`, ou seja o dia final inteiro entra. Do lado
+// dos cards o equivalente é `.lt('opened_at', diaSeguinte(ate))` — com
+// `.lte(ate)` perderíamos todo card aberto depois da meia-noite do último dia.
+//
+// E o `+1` é feito em UTC porque o banco também roda em UTC: com `new Date()`
+// em horário local, um navegador em fuso positivo devolveria o dia errado.
+export function diaSeguinte(dataISO: string): string {
+  const d = new Date(dataISO + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
 // Colunas pedidas explicitamente: `select('*')` numa view larga traz o
 // ctwa_clid inteiro (400+ caracteres) em toda linha do kanban sem motivo.
 const CARD_COLS =
@@ -200,19 +238,38 @@ export async function fetchLossReasons(): Promise<LossReason[]> {
 // As 6 colunas do kanban, com a contagem JÁ AGREGADA no banco. São sempre 6
 // linhas por cliente, inclusive as zeradas — uma coluna que some da tela
 // esconderia que o pipeline está parado ali.
-export async function fetchBoardCounts(clientId: string): Promise<BoardCount[]> {
-  const { data, error } = await supabase
-    .from('v_crm_board_counts_v1')
-    .select('client_id, stage_code, stage_label, stage_position, is_terminal, opportunities')
-    .eq('client_id', clientId)
-    .order('stage_position')
+//
+// Sempre pela RPC, com ou sem filtro. A view `v_crm_board_counts_v1` não
+// aceita parâmetro: usá-la com filtro ativo faria o topo contar o conjunto
+// inteiro enquanto a coluna mostra o subconjunto — "Atendimento 173" com 12
+// cards na tela, e ninguém sabendo em qual acreditar. Sem filtro a função
+// devolve exatamente o mesmo que a view, então não há motivo para ter dois
+// caminhos.
+export async function fetchBoardCounts(
+  clientId: string,
+  filtros: CrmFiltros = FILTROS_VAZIOS
+): Promise<BoardCount[]> {
+  const { data, error } = await supabase.rpc('crm_board_counts', {
+    p_client_id: clientId,
+    p_opened_from: filtros.de || null,
+    p_opened_to: filtros.ate || null,
+    // `p_unassigned` tem precedência no banco; mandar os dois seria pedir para
+    // depender dessa precedência em vez de ser explícito.
+    p_owner_profile_id:
+      filtros.owner && filtros.owner !== SEM_PROPRIETARIO ? filtros.owner : null,
+    p_unassigned: filtros.owner === SEM_PROPRIETARIO,
+  })
 
   if (error) {
-    console.error('[Impuls] v_crm_board_counts_v1:', error.message)
+    console.error('[Impuls] crm_board_counts:', error.message)
     return []
   }
-  return (data ?? []) as BoardCount[]
+
+  // A função agrupa mas não ordena. São 6 linhas, e a ordem é a `position` que
+  // o próprio banco devolveu — não é metodologia recriada aqui.
+  return [...((data ?? []) as BoardCount[])].sort((a, b) => a.stage_position - b.stage_position)
 }
+
 
 // Uma página de cards de UMA coluna. Nunca a coluna inteira: hoje a Royal tem
 // 162 em Atendimento, e isso só cresce.
@@ -220,13 +277,24 @@ export async function fetchCards(
   clientId: string,
   stageCode: StageCode,
   offset: number,
-  limit: number = TAMANHO_COLUNA
+  limit: number = TAMANHO_COLUNA,
+  filtros: CrmFiltros = FILTROS_VAZIOS
 ): Promise<{ cards: CrmCard[]; erro: string | null }> {
-  const { data, error } = await supabase
+  let q = supabase
     .from('v_crm_cards_v1')
     .select(CARD_COLS)
     .eq('client_id', clientId)
     .eq('stage_code', stageCode)
+
+  // Os mesmos predicados que `crm_board_counts` aplica, na mesma semântica.
+  // Se estes dois blocos divergirem, o número no topo da coluna deixa de
+  // bater com os cards e ninguém descobre por quê.
+  if (filtros.de) q = q.gte('opened_at', filtros.de)
+  if (filtros.ate) q = q.lt('opened_at', diaSeguinte(filtros.ate))
+  if (filtros.owner === SEM_PROPRIETARIO) q = q.is('owner_profile_id', null)
+  else if (filtros.owner) q = q.eq('owner_profile_id', filtros.owner)
+
+  const { data, error } = await q
     // Ordem estável e total: sem desempate por id, o .range() pode repetir ou
     // pular linha entre páginas quando duas têm a mesma data.
     .order('last_activity_at', { ascending: false, nullsFirst: false })

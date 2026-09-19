@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import {
   fetchCards, fetchCard, moveStage, fmtDataCurta,
   TAMANHO_COLUNA,
-  type BoardCount, type CrmCard,
+  type BoardCount, type CrmCard, type CrmFiltros,
 } from '@/lib/crm'
 
 // Uma coluna do kanban. Cada coluna busca a própria página: assim a coluna
@@ -14,13 +14,14 @@ import {
 // de `cards.length`, que é só o que já foi carregado.
 
 export default function KanbanColumn({
-  clientId, stage, nextStage, canWrite, resetToken, onOpen, onActed, onAviso,
+  clientId, stage, nextStage, canWrite, resetToken, filtros, onOpen, onActed, onAviso,
 }: {
   clientId: string
   stage: BoardCount
   nextStage: BoardCount | null
   canWrite: boolean
   resetToken: number
+  filtros: CrmFiltros
   onOpen: (card: CrmCard) => void
   onActed: () => void
   onAviso: (msg: string) => void
@@ -45,18 +46,21 @@ export default function KanbanColumn({
     }
 
     setCarregando(true)
-    fetchCards(clientId, stage.stage_code, 0).then(({ cards, erro }) => {
+    fetchCards(clientId, stage.stage_code, 0, TAMANHO_COLUNA, filtros).then(({ cards, erro }) => {
       if (!alive) return
       setCards(cards)
       setFalhou(!!erro)
       setCarregando(false)
     })
     return () => { alive = false }
-  }, [clientId, stage.stage_code, total, resetToken])
+    // `filtros` entra nas dependências mesmo com `resetToken` já cobrindo a
+    // troca de filtro: é o que garante que a primeira página e o "carregar
+    // mais" usem sempre o mesmo recorte que a contagem do topo.
+  }, [clientId, stage.stage_code, total, resetToken, filtros])
 
   async function carregarMais() {
     setCarregandoMais(true)
-    const { cards: novos } = await fetchCards(clientId, stage.stage_code, cards.length)
+    const { cards: novos } = await fetchCards(clientId, stage.stage_code, cards.length, TAMANHO_COLUNA, filtros)
     setCards((atuais) => [...atuais, ...novos])
     setCarregandoMais(false)
   }
