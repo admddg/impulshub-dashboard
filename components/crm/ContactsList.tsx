@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import {
-  fetchContacts, fetchCard, fmtDataCurta, fmtTelefone, classeEtapa,
+  fetchContacts, fetchCard, fmtDataCurta, fmtTelefone, classeEtapa, temFiltro,
   TAMANHO_PAGINA_CONTATOS,
-  type CrmContact, type CrmCard,
+  type CrmContact, type CrmCard, type CrmFiltros,
 } from '@/lib/crm'
 
 // Lista de contatos com busca. A busca roda no banco, sobre `search_text`,
@@ -12,9 +12,10 @@ import {
 // daria resultado errado a partir do contato 51.
 
 export default function ContactsList({
-  clientId, onOpen, onAviso,
+  clientId, filtros, onOpen, onAviso,
 }: {
   clientId: string
+  filtros: CrmFiltros
   onOpen: (card: CrmCard) => void
   onAviso: (msg: string) => void
 }) {
@@ -33,12 +34,14 @@ export default function ContactsList({
     return () => clearTimeout(t)
   }, [digitado])
 
-  useEffect(() => { setPage(0) }, [clientId, busca])
+  // Trocar filtro ou busca volta para a primeira pagina: manter o offset
+  // mostraria a pagina 3 de um recorte que agora tem uma pagina so.
+  useEffect(() => { setPage(0) }, [clientId, busca, filtros])
 
   useEffect(() => {
     let alive = true
     setCarregando(true)
-    fetchContacts(clientId, busca, page).then(({ rows, total, erro }) => {
+    fetchContacts(clientId, busca, page, TAMANHO_PAGINA_CONTATOS, filtros).then(({ rows, total, erro }) => {
       if (!alive) return
       setRows(rows)
       setTotal(total)
@@ -46,7 +49,7 @@ export default function ContactsList({
       setCarregando(false)
     })
     return () => { alive = false }
-  }, [clientId, busca, page])
+  }, [clientId, busca, page, filtros])
 
   // A lista é de contatos; o card é da oportunidade. Contato sem oportunidade
   // não tem card para abrir — é gente que conversou mas não teve entrada
@@ -100,7 +103,11 @@ export default function ContactsList({
                           número errado em silêncio. A falha é dita. */}
                       {falhou
                         ? 'Não foi possível carregar os contatos. Tente de novo.'
-                        : busca ? 'Nenhum contato encontrado para essa busca.' : 'Nenhum contato ainda.'}
+                        : busca ? 'Nenhum contato encontrado para essa busca.'
+                        // Com filtro ativo, "nenhum contato ainda" mentiria:
+                        // existem contatos, só não neste recorte.
+                        : temFiltro(filtros) ? 'Nenhum contato neste recorte de filtro.'
+                        : 'Nenhum contato ainda.'}
                     </td>
                   </tr>
                 ) : rows.map((c) => (

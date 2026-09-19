@@ -361,16 +361,44 @@ function escapaBusca(termo: string): string {
   return termo.trim().replace(/\*/g, '').replace(/[\\%_]/g, (c) => '\\' + c)
 }
 
+// Os mesmos filtros do kanban valem aqui. `opened_at` e `owner_profile_id`
+// entraram em `v_crm_contacts_v1` pela migration 20260925000003, vindos da
+// oportunidade MAIS RECENTE do contato — não do contato.
+//
+// Consequência: contato sem oportunidade tem os dois nulos e some assim que
+// houver filtro de data, porque `null >= data` é nulo. É o comportamento certo
+// — "criado em" só faz sentido para quem tem oportunidade.
+//
+// As colunas não entram no `select`: filtrar por coluna não selecionada é
+// normal no PostgREST, e a lista não precisa exibi-las.
 export async function fetchContacts(
   clientId: string,
   busca: string,
   page: number,
-  pageSize: number = TAMANHO_PAGINA_CONTATOS
+  pageSize: number = TAMANHO_PAGINA_CONTATOS,
+  filtros: CrmFiltros = FILTROS_VAZIOS
 ): Promise<{ rows: CrmContact[]; total: number; erro: string | null }> {
   let q = supabase
     .from('v_crm_contacts_v1')
     .select(CONTACT_COLS, { count: 'exact' })
     .eq('client_id', clientId)
+
+  // Semântica idêntica à de `fetchCards` e à de `crm_board_counts`.
+  if (filtros.de) q = q.gte('opened_at', filtros.de)
+  if (filtros.ate) q = q.lt('opened_at', diaSeguinte(filtros.ate))
+
+  if (filtros.owner === SEM_PROPRIETARIO) {
+    // `.is(owner_profile_id, null)` sozinho traria também quem não tem
+    // oportunidade nenhuma — nulo por ausência de oportunidade, não porque
+    // ninguém pegou o lead. Na Royal isso é 308 contra os 178 do kanban, para
+    // o mesmo filtro. Exigir a oportunidade alinha as duas visões e deixa o
+    // filtro de proprietário tratar as mesmas linhas que o de data já trata.
+    q = q.is('owner_profile_id', null).not('opportunity_id', 'is', null)
+  } else if (filtros.owner) {
+    // Aqui o recorte já é automático: sem oportunidade, `owner_profile_id` é
+    // nulo e `= <uuid>` não casa.
+    q = q.eq('owner_profile_id', filtros.owner)
+  }
 
   const termo = escapaBusca(busca)
   if (termo) q = q.ilike('search_text', `%${termo}%`)

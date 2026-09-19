@@ -256,16 +256,6 @@ export default function CrmTab({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      {/* `v_crm_contacts_v1` não expõe `opened_at` nem `owner_profile_id`, e o
-          navegador não alcança o schema `crm` para buscá-los. Em vez de deixar
-          o filtro parecer aplicado aqui, a tela diz que não está. */}
-      {visao === 'lista' && filtrado && (
-        <div className="crm-aviso">
-          Os filtros acima valem no Kanban. A lista de contatos ainda mostra todos —
-          a view de contatos não expõe data de criação nem proprietário.
-        </div>
-      )}
-
       {visao === 'kanban' ? (
         // O board só monta com a contagem do filtro corrente em mãos. Enquanto
         // ela não chega, mostrar as colunas seria exibir o cabeçalho do recorte
@@ -291,7 +281,7 @@ export default function CrmTab({ clientId }: { clientId: string }) {
           />
         )
       ) : (
-        <ContactsList clientId={clientId} onOpen={setAberto} onAviso={setAviso} />
+        <ContactsList clientId={clientId} filtros={filtros} onOpen={setAberto} onAviso={setAviso} />
       )}
 
       {aberto && (
