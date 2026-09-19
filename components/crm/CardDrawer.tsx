@@ -126,7 +126,7 @@ export default function CardDrawer({
           <div><span>Aberto em</span><b>{fmtDataHora(card.opened_at)}</b></div>
           <div><span>Última atividade</span><b>{fmtDataHora(card.last_activity_at)}</b></div>
           <div>
-            <span>Dono</span>
+            <span>Proprietário</span>
             {canWrite ? (
               <select
                 className="select-native crm-owner"
@@ -134,7 +134,7 @@ export default function CardDrawer({
                 disabled={trocandoDono}
                 onChange={(e) => trocaDono(e.target.value)}
               >
-                <option value="">Sem dono</option>
+                <option value="">Sem proprietário</option>
                 {owners.map((o) => (
                   <option key={o.profile_id} value={o.profile_id}>
                     {o.display_name || 'Sem nome'}
@@ -142,7 +142,7 @@ export default function CardDrawer({
                 ))}
               </select>
             ) : (
-              <b>{card.owner_name || 'Sem dono'}</b>
+              <b>{card.owner_name || 'Sem proprietário'}</b>
             )}
           </div>
         </div>

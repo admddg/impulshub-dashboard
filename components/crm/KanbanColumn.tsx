@@ -114,7 +114,7 @@ export default function KanbanColumn({
                     <span className="crm-card-ad" title={card.campaign_name}>{card.campaign_name}</span>
                   )}
                   <span className="crm-card-meta">
-                    {card.owner_name ? card.owner_name : 'Sem dono'}
+                    {card.owner_name ? card.owner_name : 'Sem proprietário'}
                     {' · '}
                     {fmtDataCurta(card.last_activity_at)}
                   </span>
