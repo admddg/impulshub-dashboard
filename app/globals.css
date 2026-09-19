@@ -570,9 +570,12 @@ footer{padding:28px 0 40px;color:var(--ink-faint);font-size:12px;text-align:cent
 .crm-col-more:disabled{opacity:.6;cursor:not-allowed}
 
 .crm-card{background:var(--surface);border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow);overflow:hidden}
-.crm-card-open{display:block;width:100%;text-align:left;background:none;border:0;padding:10px 11px;cursor:pointer;font:inherit}
+/* Altura uniforme: sem o clamp, um nome longo quebrava em duas linhas, o card
+   crescia e o overflow:hidden do .crm-card cortava o resto. Coluna com cards
+   de alturas diferentes fica ilegivel na Royal. */
+.crm-card-open{display:flex;flex-direction:column;justify-content:center;min-height:76px;width:100%;text-align:left;background:none;border:0;padding:10px 11px;cursor:pointer;font:inherit}
 .crm-card-open:hover{background:#fafbfb}
-.crm-card-name{display:block;font-size:13px;font-weight:600;color:var(--ink);line-height:1.3}
+.crm-card-name{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word;font-size:13px;font-weight:600;color:var(--ink);line-height:1.3}
 .crm-card-ad{display:block;font-size:11px;color:var(--ink-soft);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .crm-card-meta{display:block;font-size:11px;color:var(--ink-faint);margin-top:5px}
 .crm-card-next{width:100%;border:0;border-top:1px solid var(--line);background:var(--bg);padding:7px;font:inherit;font-size:11.5px;font-weight:600;color:var(--petrol);cursor:pointer}
