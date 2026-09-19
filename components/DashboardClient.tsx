@@ -7,6 +7,7 @@ import { resolveClient, getMyClients, amIAgencyUser } from '@/lib/access'
 import { type Period, type CustomRange } from '@/lib/utils'
 import PeriodSelector from '@/components/PeriodSelector'
 import OverviewTab from '@/components/tabs/OverviewTab'
+import CrmTab from '@/components/tabs/CrmTab'
 import FunnelTab from '@/components/tabs/FunnelTab'
 import ChannelsTab from '@/components/tabs/ChannelsTab'
 import MetaTab from '@/components/tabs/MetaTab'
@@ -15,10 +16,11 @@ import LeadsTab from '@/components/tabs/LeadsTab'
 import EventsTab from '@/components/tabs/EventsTab'
 import DiarioTab from '@/components/tabs/DiarioTab'
 
-type Tab = 'overview' | 'funnel' | 'channels' | 'meta' | 'google' | 'leads' | 'events' | 'diario'
+type Tab = 'overview' | 'crm' | 'funnel' | 'channels' | 'meta' | 'google' | 'leads' | 'events' | 'diario'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Visão geral' },
+  { id: 'crm', label: 'CRM' },
   { id: 'funnel', label: 'Funil' },
   { id: 'channels', label: 'Canais' },
   { id: 'meta', label: 'Meta Ads' },
@@ -152,6 +154,7 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
         </div>
 
         {tab === 'overview' && <OverviewTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
+        {tab === 'crm' && <CrmTab clientId={clientId} />}
         {tab === 'funnel' && <FunnelTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
         {tab === 'channels' && <ChannelsTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
         {tab === 'meta' && <MetaTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
