@@ -15,7 +15,7 @@
 
 set local lock_timeout = '5s';
 
-create function crm.bump_stage_version()
+create or replace function crm.bump_stage_version()
 returns trigger
 language plpgsql
 security definer
@@ -30,6 +30,8 @@ end;
 $fn$;
 
 revoke all on function crm.bump_stage_version() from public, anon, authenticated, service_role;
+
+drop trigger if exists opportunities_bump_stage_version on crm.opportunities;
 
 -- BEFORE de proposito: a ponte de conversoes (AFTER UPDATE) precisa enxergar a
 -- versao ja incrementada no payload que envia.
