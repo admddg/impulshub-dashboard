@@ -44,8 +44,28 @@ Formas diferentes que o card assume hoje:
 | Etapa **Compareceu** (última não terminal) | O botão — não há próxima etapa |
 | Usuário sem permissão de escrita | O botão |
 
-Isso explica a diferença entre as contas: os cards da **Central não têm linha de
-campanha** e os da **Royal têm**. Mesma regra de CSS, duas estruturas.
+> **Corrigido depois de medir:** esta seção dizia que os cards da Central não
+> têm linha de campanha. Têm — todos os 14. E a estrutura condicional, embora
+> real e digna de correção, **não era a causa principal.** Ver abaixo.
+
+### A causa principal, medida no Chrome
+
+```
+.crm-card        altura  32px   flex-shrink 1   overflow hidden
+.crm-card-open   altura 120px
+```
+
+`.crm-col-body` é um flex column com altura limitada pelo `max-height` da
+coluna. **Item flex tem `flex-shrink:1` por omissão**, então o Chrome comprime
+cada card para caber em vez de deixar a coluna rolar — medido em **20px por
+card** na Royal em Atendimento e **32px** na Central — e o `overflow:hidden` do
+`.crm-card` corta o conteúdo de 120px no meio da linha. O body nem rolava:
+`scrollHeight == offsetHeight` nas quatro colunas com card.
+
+A correção de primeira ordem é `.crm-card{flex:0 0 auto}`. Sem encolher, a
+coluna transborda e o `overflow-y:auto` do body faz o que devia fazer desde o
+início. As duas correções abaixo continuam necessárias, mas sozinhas não
+resolveriam: com `flex-shrink` ativo, `height:auto` também é comprimido.
 
 ## A correção
 
@@ -116,26 +136,50 @@ especificamente.
 
 Rode no console com o kanban aberto, **nos três clientes que têm dado**:
 
+> ⚠️ **A primeira versão deste script aprovava a tela quebrada.** Ela media
+> `.crm-card-open`, que reportava 120px e zero cortes enquanto os cards
+> estavam fatiados nas fotos. Quem é comprimido pelo `flex-shrink` da coluna é
+> a caixa `.crm-card` em volta; o botão de dentro só informa a altura que
+> *pediu*. A versão abaixo mede a caixa certa e separa **corte** de
+> **truncagem** — ver a nota depois do bloco.
+
 ```js
-// Mede coluna por coluna: uniformidade e corte de texto.
+// Mede a CAIXA do card (.crm-card), nao o botao de dentro (.crm-card-open).
 const linhas = [...document.querySelectorAll('.crm-col')].map((col) => {
-  const titulo = col.querySelector('.crm-col-head, h3, header')?.innerText?.trim() ?? '?';
-  const cards  = [...col.querySelectorAll('.crm-card-open')];
+  const titulo = col.querySelector('.crm-col-name')?.innerText?.trim() ?? '?';
+  const cards  = [...col.querySelectorAll('.crm-card')];
   const alturas = [...new Set(cards.map((c) => Math.round(c.offsetHeight)))];
-  const cortados = [...col.querySelectorAll('.crm-card-name,.crm-card-ad,.crm-card-meta')]
-    .filter((e) => e.scrollHeight > e.clientHeight + 1);
-  return { coluna: titulo, cards: cards.length,
-           alturas: alturas.join(','), textosCortados: cortados.length };
-});
+  // DEFEITO: caixa menor que o conteudo. E o corte no meio da linha, sem
+  // nenhum indicador visual. Tem que ser 0.
+  const caixasCortadas = [...col.querySelectorAll('.crm-card,.crm-card-open')]
+    .filter((e) => e.scrollHeight > e.clientHeight + 1).length;
+  // ESPERADO: texto maior que a reserva de linhas. O line-clamp poe
+  // reticencias, entao isto e truncagem anunciada. NAO reprova.
+  const truncados = [...col.querySelectorAll('.crm-card-name,.crm-card-ad,.crm-card-meta')]
+    .filter((e) => e.scrollHeight > e.clientHeight + 1).length;
+  const body = col.querySelector('.crm-col-body');
+  return { coluna: titulo, cards: cards.length, alturas: alturas.join(','),
+           caixasCortadas, truncados,
+           rola: body.scrollHeight > body.offsetHeight + 1 };
+}).filter((l) => l.cards > 0);
 console.table(linhas);
 ```
 
 **Passa quando, em toda coluna que tem card:** `alturas` mostra **um único
-valor** e `textosCortados = 0`. Vale para os três clientes.
+valor** e `caixasCortadas = 0`. Vale para os três clientes.
+
+**`truncados` não reprova.** É texto que excedeu a reserva de linhas e ganhou
+reticências — comportamento correto. Confundir as duas coisas faz o critério
+reprovar um nome longo que está certo e aprovar um card guilhotinado.
+
+**`rola` é diagnóstico, não aprovação.** Numa coluna cheia, `rola: false`
+significa que os cards foram comprimidos para caber em vez de a coluna
+transbordar — foi exatamente o sintoma deste bug, com as quatro colunas com
+card em `rola: false`. Numa coluna com poucos cards, `false` é normal.
 
 O seletor da coluna pode não ser `.crm-col` — confira o nome real da classe em
 `KanbanColumn.tsx` e ajuste antes de rodar. Se o título vier `?`, não é
-problema; o que importa são os dois números.
+problema; o que importa são os números.
 
 Uniformidade é **dentro da coluna**, não entre colunas: Ganho e Perdido
 legitimamente não têm o botão de avançar, então são mais baixos. Isso é
