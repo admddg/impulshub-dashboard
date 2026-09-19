@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import {
   fetchMyRole, fetchOwners, fetchLossReasons, fetchBoardCounts,
-  temFiltro, FILTROS_VAZIOS, SEM_PROPRIETARIO,
+  temFiltro, intervaloDoPreset, FILTROS_VAZIOS, SEM_PROPRIETARIO,
   type BoardCount, type CrmCard, type CrmFiltros, type CrmOwner, type LossReason,
+  type PresetData,
 } from '@/lib/crm'
 import KanbanBoard from '@/components/crm/KanbanBoard'
 import ContactsList from '@/components/crm/ContactsList'
@@ -19,6 +20,31 @@ import CardDrawer from '@/components/crm/CardDrawer'
 
 type Visao = 'kanban' | 'lista'
 
+const PRESETS: { id: PresetData; label: string }[] = [
+  { id: 'todos', label: 'Todos' },
+  { id: '7d', label: '7 dias' },
+  { id: '30d', label: '30 dias' },
+  { id: 'custom', label: 'Personalizado' },
+]
+
+// 'YYYY-MM-DD' -> 'DD/MM/AA', por manipulação de string.
+//
+// De propósito não usa `new Date()`: uma data pura vira meia-noite UTC, e
+// `toLocaleDateString` num fuso negativo como o do Brasil devolveria o dia
+// anterior. O rótulo mostraria 12/09 para um filtro que começa em 13/09.
+function rotuloData(iso: string): string {
+  const [y, m, d] = iso.split('-')
+  return `${d}/${m}/${y.slice(2)}`
+}
+
+// Dias civis cobertos, contando as duas pontas — é assim que o banco conta,
+// com `opened_at < (ate + 1)`. Serve para o rótulo dizer em voz alta quantos
+// dias o preset pegou, em vez de deixar o nome do botão responder sozinho.
+function diasNoIntervalo(de: string, ate: string): number {
+  const ms = new Date(ate + 'T00:00:00Z').getTime() - new Date(de + 'T00:00:00Z').getTime()
+  return Math.max(0, Math.round(ms / 86400000) + 1)
+}
+
 export default function CrmTab({ clientId }: { clientId: string }) {
   const [carregandoRef, setCarregandoRef] = useState(true)
   const [carregandoBoard, setCarregandoBoard] = useState(true)
@@ -30,6 +56,10 @@ export default function CrmTab({ clientId }: { clientId: string }) {
   const [aberto, setAberto] = useState<CrmCard | null>(null)
   const [aviso, setAviso] = useState('')
   const [filtros, setFiltros] = useState<CrmFiltros>(FILTROS_VAZIOS)
+
+  // Estado só de interface: qual botão está aceso. A verdade do filtro continua
+  // sendo `filtros.de` / `filtros.ate` — o preset apenas os preenche.
+  const [preset, setPreset] = useState<PresetData>('todos')
 
   // Muda a cada ação de escrita e a cada troca de filtro. As colunas observam
   // e voltam para a primeira página: sem isso, trocar o filtro deixaria a
@@ -43,6 +73,7 @@ export default function CrmTab({ clientId }: { clientId: string }) {
     setAberto(null)
     setAviso('')
     setFiltros(FILTROS_VAZIOS)
+    setPreset('todos')
 
     Promise.all([fetchMyRole(clientId), fetchOwners(clientId), fetchLossReasons()])
       .then(([role, owners, reasons]) => {
@@ -89,6 +120,23 @@ export default function CrmTab({ clientId }: { clientId: string }) {
     setFiltros((f) => ({ ...f, ...troca }))
   }
 
+  // O preset é só atalho de preenchimento: escreve no mesmo `de`/`ate` que os
+  // campos manuais escreveriam. Nada abaixo daqui sabe que ele existe.
+  function escolhePreset(p: PresetData) {
+    setPreset(p)
+    // "Personalizado" mantém o intervalo que estava, para a pessoa ajustar a
+    // partir dele em vez de começar do zero.
+    if (p === 'custom') return
+    const { de, ate } = intervaloDoPreset(p)
+    // Devolver o mesmo objeto quando nada muda evita uma recarga à toa.
+    setFiltros((f) => (f.de === de && f.ate === ate ? f : { ...f, de, ate }))
+  }
+
+  function limpaFiltros() {
+    setPreset('todos')
+    setFiltros(FILTROS_VAZIOS)
+  }
+
   // Só a primeira carga esconde a tela inteira. Recarregar contagem por troca
   // de filtro mantém a barra montada: desmontá-la tiraria o foco do campo que
   // a pessoa acabou de mexer.
@@ -118,24 +166,46 @@ export default function CrmTab({ clientId }: { clientId: string }) {
 
       <div className="crm-filters">
         <div className="crm-filter">
-          <label htmlFor="crm-de">Criado de</label>
-          <input
-            id="crm-de"
-            type="date"
-            value={filtros.de}
-            onChange={(e) => mudaFiltro({ de: e.target.value })}
-          />
+          <label>Criado em</label>
+          <div className="sortbtns">
+            {PRESETS.map((p) => (
+              <button
+                key={p.id}
+                className={`sortbtn ${preset === p.id ? 'active' : ''}`}
+                onClick={() => escolhePreset(p.id)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="crm-filter">
-          <label htmlFor="crm-ate">até</label>
-          <input
-            id="crm-ate"
-            type="date"
-            value={filtros.ate}
-            onChange={(e) => mudaFiltro({ ate: e.target.value })}
-          />
-        </div>
+        {/* Os campos manuais só existem em "Personalizado". Nos presets eles
+            seriam duas caixas que a pessoa não pode editar sem desfazer o
+            preset — ruído. */}
+        {preset === 'custom' && (
+          <>
+            <div className="crm-filter">
+              <label htmlFor="crm-de">De</label>
+              <input
+                id="crm-de"
+                type="date"
+                value={filtros.de}
+                onChange={(e) => mudaFiltro({ de: e.target.value })}
+              />
+            </div>
+
+            <div className="crm-filter">
+              <label htmlFor="crm-ate">Até</label>
+              <input
+                id="crm-ate"
+                type="date"
+                value={filtros.ate}
+                onChange={(e) => mudaFiltro({ ate: e.target.value })}
+              />
+            </div>
+          </>
+        )}
 
         <div className="crm-filter">
           <label htmlFor="crm-owner">Proprietário</label>
@@ -156,11 +226,22 @@ export default function CrmTab({ clientId }: { clientId: string }) {
         </div>
 
         {filtrado && (
-          <button className="crm-btn crm-filters-clear" onClick={() => setFiltros(FILTROS_VAZIOS)}>
+          <button className="crm-btn crm-filters-clear" onClick={limpaFiltros}>
             Limpar filtros
           </button>
         )}
       </div>
+
+      {/* O intervalo resolvido, escrito por extenso. Com preset, é o que tira a
+          dúvida de quantos dias "7 dias" realmente pegou. */}
+      {(filtros.de || filtros.ate) && (
+        <div className="crm-filters-range">
+          Criados {filtros.de ? `de ${rotuloData(filtros.de)}` : 'até'}
+          {filtros.de && filtros.ate ? ' a ' : ' '}
+          {filtros.ate ? rotuloData(filtros.ate) : 'em diante'}
+          {filtros.de && filtros.ate ? ` · ${diasNoIntervalo(filtros.de, filtros.ate)} dias` : ''}
+        </div>
+      )}
 
       {intervaloInvertido && (
         <div className="crm-aviso">

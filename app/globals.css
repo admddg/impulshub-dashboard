@@ -674,3 +674,6 @@ footer{padding:28px 0 40px;color:var(--ink-faint);font-size:12px;text-align:cent
 .badge.watch{background:#e7f0f3;color:var(--petrol)}
 .badge.scale{background:var(--up-bg);color:var(--up)}
 .badge.pause{background:var(--down-bg);color:var(--down)}
+/* Rotulo do intervalo resolvido, embaixo da barra de filtros (IMP-212 r2).
+   Com preset, e o que responde "7 dias pegou quais dias". */
+.crm-filters-range{font-size:12px;color:var(--ink-soft);margin:-6px 4px 14px}

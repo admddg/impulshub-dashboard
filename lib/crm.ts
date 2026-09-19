@@ -1,6 +1,7 @@
 'use client'
 
 import { supabase } from '@/lib/supabase'
+import { diaDeHojeSPISO } from '@/lib/utils'
 
 // Porta única de entrada do CRM. Tudo que a aba lê ou escreve passa por aqui.
 //
@@ -163,6 +164,31 @@ export function diaSeguinte(dataISO: string): string {
   const d = new Date(dataISO + 'T00:00:00Z')
   d.setUTCDate(d.getUTCDate() + 1)
   return d.toISOString().slice(0, 10)
+}
+
+// Presets do filtro de data. Eles NÃO são um segundo caminho de filtragem:
+// preenchem exatamente o mesmo par `de`/`ate` que os campos manuais, e daí em
+// diante tudo — a RPC de contagem e a query de cards — segue idêntico.
+export type PresetData = 'todos' | '7d' | '30d' | 'custom'
+
+function somaDias(dataISO: string, n: number): string {
+  const d = new Date(dataISO + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+// "7 dias" são 7 dias civis contando hoje — `hoje - 6` até `hoje`, a mesma
+// contagem que `getRanges` usa nas outras abas (`end - (n - 1)`). A diferença
+// é só que o CRM inclui hoje e o dashboard fecha em D-1, porque aqui o lead
+// entra ao vivo.
+//
+// `hoje - 6` e não `hoje - 7`: o segundo devolveria 8 dias civis sob um rótulo
+// que diz 7. Medido na Royal em 19/09: 157 contra 174.
+export function intervaloDoPreset(preset: PresetData): { de: string; ate: string } {
+  if (preset !== '7d' && preset !== '30d') return { de: '', ate: '' }
+  const ate = diaDeHojeSPISO()
+  const dias = preset === '7d' ? 7 : 30
+  return { de: somaDias(ate, -(dias - 1)), ate }
 }
 
 // Colunas pedidas explicitamente: `select('*')` numa view larga traz o

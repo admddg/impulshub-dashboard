@@ -41,6 +41,15 @@ export function dataDeCorteISO(): string {
   return toISODate(dataDeCorte())
 }
 
+// O dia civil de HOJE em America/Sao_Paulo, como 'YYYY-MM-DD'.
+//
+// O dashboard fecha em D-1 porque o sync de mídia só tem dado até ontem. A aba
+// CRM não: lead entra ao vivo pelo webhook, e o atendente trabalha o de hoje.
+// Por isso os presets do CRM pedem "hoje" e não `dataDeCorte`.
+export function diaDeHojeSPISO(): string {
+  return toISODate(diaDeHojeSP())
+}
+
 // 'DD/MM' para o rótulo "Dados até" ao lado do seletor de período.
 export function dataDeCorteLabel(): string {
   const iso = dataDeCorteISO()
