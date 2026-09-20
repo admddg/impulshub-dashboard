@@ -68,9 +68,23 @@ Merge de `feat/imp-206-crm-tab` para `main`; o deploy é automático.
 IMP-206, 207 e 212 estão com o código pronto, typecheck e build limpos, e
 fecham junto com o IMP-227.
 
-**Pronto quando:** a aba CRM está em `painel.impulshub.com.br` e o smoke test
-prova **variação zero** em `conversion_outbox` para `source_system = 'impuls_crm'`
-— conta antes, move um card, conta depois, diferença exatamente zero.
+**A aba CRM só aparece para a agência.** Royal, Central e QuickClean operam no
+GoHighLevel: as etapas que o parser calcula a partir do WhatsApp não são a
+verdade da clínica. Mostrar esse kanban para quem trabalha no GHL cria a
+pergunta "para onde eu olho?", e a resposta hoje é "para o GHL".
+
+As três contas têm login de clínica — Royal (viewer), Central (attendant e
+viewer) e QuickClean (viewer). Tirar Royal e Central do sistema não resolveria:
+o Marcos veria o mesmo desencontro, e perderíamos o dado que serve de
+laboratório.
+
+É trava temporária, não permissão. Sai quando a IMP-213 entrar, que decide por
+papel em vez de por "é agência".
+
+**Pronto quando:** a aba CRM está em `painel.impulshub.com.br`, **não aparece
+para um login de clínica**, e o smoke test prova **variação zero** em
+`conversion_outbox` para `source_system = 'impuls_crm'` — conta antes, move um
+card, conta depois, diferença exatamente zero.
 
 ### 2 — Avaliar em uso · IMP-224
 O Caio opera o painel por alguns dias e anota o que incomoda. Uso real, não
