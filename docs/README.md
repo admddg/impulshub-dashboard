@@ -1,7 +1,11 @@
 # ImpulsHub Dashboard
 
-Painel de marketing odontológico multi-cliente. Conecta CRM GoHighLevel +
-Meta Ads + Google Ads numa visão consolidada por cliente.
+Painel de marketing odontológico multi-cliente, com CRM próprio. Consolida
+conversas de WhatsApp (via Stevo), Meta Ads e Google Ads por cliente.
+
+> **Começando agora? Leia [`ROADMAP.md`](ROADMAP.md) primeiro.** É a fonte única
+> de direção: onde o projeto está, as cinco etapas, e as regras que não se
+> quebram. Este arquivo descreve a aplicação; o ROADMAP descreve o trabalho.
 
 **Stack:** Next.js 14 (App Router, TypeScript) + Supabase/Postgres + Recharts.
 **Deploy:** Vercel (auto-deploy via push no GitHub). Domínio: `painel.impulshub.com.br`.
@@ -12,8 +16,8 @@ Meta Ads + Google Ads numa visão consolidada por cliente.
 /login
 /dashboard                          redirecionador inteligente
 /clientes                           seletor multi-cliente
-/clientes/[client_slug]/dashboard   dashboard (8 abas)
-/operacao                           saúde dos workflows n8n (só agência)
+/clientes/[client_slug]/dashboard   dashboard (9 abas, incluindo CRM)
+/agencia                            área interna: overview, onboarding, tracking, sync
 ```
 
 ## As duas réguas de análise

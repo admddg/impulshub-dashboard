@@ -1,0 +1,191 @@
+# Roteiro do ImpulsHub
+
+**Atualizado em 20/09/2026.** Este arquivo é a fonte única de direção. Se outro
+documento disser algo diferente, este vale.
+
+---
+
+## A decisão que define tudo
+
+> **Royal, Central e QuickClean permanecem no GoHighLevel, definitivamente.**
+> Não são alvo de migração. Servem como laboratório: aprendizado, modelagem e
+> teste.
+>
+> **O sistema é construído para os clientes NOVOS.** Cliente novo entra 100% na
+> nossa estrutura, sem GHL.
+>
+> **A Impuls é o primeiro cliente de verdade do sistema novo.** A agência usa o
+> próprio sistema para vender, antes de qualquer cliente externo.
+
+Por que isso importa: o projeto tentava construir um CRM **e** migrar quatro
+operações com hábito formado em outra ferramenta. A segunda parte era a fonte de
+quase toda a complexidade. Removê-la eliminou de uma vez o treino de equipe, a
+necessidade de um inbox, e o risco de apagar conversão ao tirar o card do GHL.
+
+**Não há data de entrega.** A data anterior era estimativa, não compromisso, e
+estava produzindo pressa. O critério é a lista da seção "Porta de entrada".
+
+---
+
+## Onde estamos — medido em 20/09/2026
+
+| Peça | Estado |
+|---|---|
+| Schema `crm`, 14 tabelas, RLS | ✅ produção |
+| Parser do Stevo (`pg_cron`, 1 min) | ✅ produção |
+| 12 migrations | ✅ produção, ledger batendo com o repositório |
+| Aba CRM (kanban, lista, card, filtros) | ✅ pronta em `feat/imp-206-crm-tab`, **não publicada** |
+| Conversões pelo CRM | ⛔ desligadas, cadeia incompleta |
+| Permissões por papel | ⛔ atendente enxerga faturamento |
+
+**Produção roda `b43b805`, sem a aba CRM.** O banco está à frente do publicado.
+
+### Dados por cliente
+
+| Cliente | Instância Stevo | Mensagens | Oportunidades | Papel |
+|---|---|---|---|---|
+| Royal Odontologia | `royal-closer`, `royal-comercial` | 3.308 | 189 | Laboratório, fica no GHL |
+| Marcos QuickClean | `marcos-quick-clean` | 6.397 | 92 | **Sem decisão comercial** — fora do roteiro |
+| Central - Gama | `central-gama-crc` | 137 | 16 | Laboratório, fica no GHL |
+| ImpulsHub | **nenhuma** | **0** | **0** | Será a primeira operação própria |
+
+Tenant interno da Impuls: `client_id 3ec294db-a64a-4420-9b4a-0d917f65d399`,
+slug `impulshub`, tenant CRM existe, 2 usuários ativos. **"Impuls" e "ImpulsHub"
+são o mesmo registro** — não há ambiguidade.
+
+A Central tem volume baixo porque a equipe dela atende dentro do GHL; o que
+chega aqui é a sobra. Não é defeito de captura.
+
+---
+
+## As cinco etapas
+
+Uma de cada vez. **Não comece a seguinte antes de a anterior estar em uso.**
+
+### 1 — Publicar o CRM
+Merge de `feat/imp-206-crm-tab` para `main`; o deploy é automático.
+
+**Pronto quando:** a aba CRM está em `painel.impulshub.com.br` e o smoke test
+prova **variação zero** em `conversion_outbox` para `source_system = 'impuls_crm'`
+— conta antes, move um card, conta depois, diferença exatamente zero.
+
+### 2 — Avaliar em uso
+O Caio opera o painel por alguns dias e anota o que incomoda. Uso real, não
+revisão de código.
+
+Pode mover card à vontade em Royal, Central e QuickClean: **nenhuma delas usa
+nosso CRM para trabalhar**, então escrever aqui não afeta operação nenhuma.
+
+**Pronto quando:** existe uma lista de incômodos vinda do uso, triada entre
+"corrige agora" e "backlog". Não é para reabrir o que já funciona.
+
+### 3 — Permissões e usuários
+IMP-213 (papéis e visibilidade por aba) e IMP-214 (dois proprietários: CRC e
+Vendas).
+
+| Papel | Vê |
+|---|---|
+| Dono / gestor da clínica | Tudo: faturamento, investimento, ROI, CRM, funil, canais |
+| Atendente | Só CRM, funil e canais — **não vê dinheiro** |
+| Agência | Tudo, em todas as contas, + painel interno |
+
+**Pronto quando:** um atendente logado não lê faturamento **nem pela API
+direta**, e o seletor de proprietário mostra apenas usuários operacionais da
+clínica — nunca agência, nunca gestor.
+
+### 4 — Pipeline automatizada
+
+**4A (pré-requisito):** conectar o WhatsApp comercial da Impuls a uma instância
+Stevo. Sem mensagem entrando, não há o que automatizar. Hoje a Impuls tem zero.
+
+**4B:** regras do tipo **"chegou tal mensagem → move para tal etapa"**.
+
+O mecanismo **já existe**: `crm.stevo_parse_messages` já move Lead →
+Atendimento na primeira resposta. Regra nova é mais uma condição no mesmo lugar.
+Dimensione como pequeno até que se prove o contrário.
+
+**Fora de escopo, explicitamente:** envio de mensagem, follow-up, lembrete,
+distribuição entre atendentes, inbox, campanhas.
+
+**Pronto quando:** uma regra roda sozinha em conversa real da Impuls e o Caio
+confia nela.
+
+### 5 — Conversões e tracking
+IMP-215 a IMP-219.
+
+O estado medido:
+
+- **Ninguém consome a `conversion_outbox`.** 512 linhas `pending` paradas — 326
+  de `google_ads` desde 24/08, 186 de `meta` desde 10/09. O n8n `1.1` grava a
+  linha *e* entrega na mesma execução; o que não sai na hora fica pendente para
+  sempre. **A outbox é um registro, não uma fila.**
+- A ponte exige `ghl_location_id` e lança exceção se vazio — cliente sem GHL
+  quebraria ao mover card.
+- Ganho é emitido **antes** de valor e moeda serem gravados.
+- Só cria job Meta; Google nunca recebe.
+
+⚠️ **As 512 linhas pendentes não podem ser enviadas.** São de agosto e setembro.
+Qualquer consumidor precisa de corte por data e por cliente — evento aceito pela
+Conversions API não volta.
+
+**Meta é o primeiro canário.** O Google não pode sumir em silêncio: antes de
+encerrar a etapa, a IMP-218 precisa de decisão explícita — entra junto ou é
+adiada com motivo escrito. O Google recebe conversão hoje (230 enviadas).
+
+**Pronto quando:** mover um card na Impuls faz o evento aparecer no Gerenciador
+de Eventos da Meta, e o runbook de ativação (IMP-219) existe.
+
+---
+
+## Porta de entrada do próximo cliente
+
+Cliente novo só entra com tudo abaixo fechado:
+
+- [ ] Sistema publicado e avaliado em uso
+- [ ] Permissões por papel funcionando
+- [ ] Automações de pipeline rodando
+- [ ] Conversões e tracking rodando e revisados
+- [ ] Runbook de onboarding (IMP-223) escrito e testado na Impuls
+
+---
+
+## Regras que não se quebram
+
+- **Não ligue `crm_emits_conversions`** para nenhum cliente. Só o Caio, e só
+  depois de IMP-215 a IMP-219. Hoje os 6 registros estão `false`
+- **Exigem autorização do Caio:** push para branches compartilhadas, merge ou
+  push em `main`, deploy, DDL, migrations, flags e escrita em dados de produção.
+  **Merge e deploy de produção nunca são delegados implicitamente.** Push de
+  feature branch para revisão não é escrita em produção
+- Revisão independente em toda mudança de RLS, view ou função `SECURITY DEFINER`
+- Nenhum executor aprova o próprio trabalho de risco médio ou alto
+- Não trabalhe em `Impuls-Platform` nem em `Impuls-Platform-onda3` — arquivados
+- **Não abra tarefa que não esteja ligada à etapa atual, a um cliente com
+  problema, ou a um risco de perda irreversível.** Levantar risco e não agir é
+  decisão válida. Registrar é obrigatório; corrigir não é
+
+## Como entregar
+
+Uma IMP por entrega, branch isolada, commits pequenos, a partir da próxima
+entrega depois da publicação do CRM. A branch atual do CRM carrega IMP-206, 207
+e 212 — exceção histórica já consolidada.
+
+No relatório, **separe sempre**: o que foi **verificado rodando** com o número
+medido, o que está **correto por construção mas não testado**, e o que **não
+bateu** e por quê.
+
+Requisito visual só conta como entregue com um número que o comprove. Um número
+errado é pior que um número ausente — se não mediu, diga que não mediu.
+
+---
+
+## Onde está o resto
+
+| Assunto | Arquivo |
+|---|---|
+| Regras de como escrever aqui | [`AGENTS.md`](../AGENTS.md) |
+| Contrato das views e RPCs do CRM | [`CONTRATO-TELA-CRM.md`](CONTRATO-TELA-CRM.md) |
+| Decisão de conversões desligadas | [`adr/ADR-0017-...`](adr/ADR-0017-entregar-crm-com-conversoes-desligadas.md) |
+| Banco: schema, segurança | [`BANCO_DE_DADOS.md`](BANCO_DE_DADOS.md) |
+| Arquitetura geral | [`ARQUITETURA.md`](ARQUITETURA.md) |
+| Briefings já cumpridos | [`contexto/arquivo/`](contexto/arquivo/) |
