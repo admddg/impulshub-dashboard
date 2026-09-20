@@ -34,18 +34,18 @@ estava produzindo pressa. O critério é a lista da seção "Porta de entrada".
 | Schema `crm`, 14 tabelas, RLS | ✅ produção |
 | Parser do Stevo (`pg_cron`, 1 min) | ✅ produção |
 | 12 migrations | ✅ produção, ledger batendo com o repositório |
-| Aba CRM (kanban, lista, card, filtros) | ✅ pronta em `feat/imp-206-crm-tab`, **não publicada** |
+| Aba CRM (kanban, lista, card, filtros) | ✅ **publicada** em produção (`c220687`); smoke test passou em 20/09 |
 | Conversões pelo CRM | ⛔ desligadas, cadeia incompleta |
 | Permissões por papel | ⛔ atendente enxerga faturamento |
 
-**Produção roda `b43b805`, sem a aba CRM.** O banco está à frente do publicado.
+**Produção roda `c220687`, com a aba CRM.** Dois cards foram movidos na Central pela interface real e as contagens de conversão do CRM seguiram em zero.
 
 ### Dados por cliente
 
 | Cliente | Instância Stevo | Mensagens | Oportunidades | Papel |
 |---|---|---|---|---|
 | Royal Odontologia | `royal-closer`, `royal-comercial` | 3.308 | 189 | Laboratório, fica no GHL |
-| Marcos QuickClean | `marcos-quick-clean` | 6.397 | 92 | **Sem decisão comercial** — fora do roteiro |
+| Marcos QuickClean | `marcos-quick-clean` | 6.397 | 92 | **Candidata a sair do GHL** depois do IMP-228 (rótulos de etapa). Não é prioridade |
 | Central - Gama | `central-gama-crc` | 137 | 16 | Laboratório, fica no GHL |
 | ImpulsHub | **nenhuma** | **0** | **0** | Será a primeira operação própria |
 
@@ -62,7 +62,7 @@ chega aqui é a sobra. Não é defeito de captura.
 
 Uma de cada vez. **Não comece a seguinte antes de a anterior estar em uso.**
 
-### 1 — Publicar o CRM · IMP-227
+### 1 — Publicar o CRM · IMP-227 · ✅ concluída em 20/09
 Merge de `feat/imp-206-crm-tab` para `main`; o deploy é automático.
 
 IMP-206, 207 e 212 estão com o código pronto, typecheck e build limpos, e
@@ -115,7 +115,7 @@ clínica — nunca agência, nunca gestor.
 **4A · IMP-225 (pré-requisito):** conectar o WhatsApp comercial da Impuls a uma instância
 Stevo. Sem mensagem entrando, não há o que automatizar. Hoje a Impuls tem zero.
 
-**4B · IMP-226:** regras do tipo **"chegou tal mensagem → move para tal etapa"**.
+**4B · IMP-226:** regras do tipo **"chegou tal mensagem → move para tal etapa"**, com a frase **configurável por cliente** (ADR-0019): tabela `(cliente, etapa, frase)`, até 5 por etapa, só Atendimento, Agendado e Compareceu, tela em `/agencia` restrita à agência. Ganho e Perdido continuam manuais.
 
 O mecanismo **já existe**: `crm.stevo_parse_messages` já move Lead →
 Atendimento na primeira resposta. Regra nova é mais uma condição no mesmo lugar.
@@ -205,3 +205,10 @@ errado é pior que um número ausente — se não mediu, diga que não mediu.
 | Banco: schema, segurança | [`BANCO_DE_DADOS.md`](BANCO_DE_DADOS.md) |
 | Arquitetura geral | [`ARQUITETURA.md`](ARQUITETURA.md) |
 | Briefings já cumpridos | [`contexto/arquivo/`](contexto/arquivo/) |
+
+## Decisões de produto já tomadas — não reabrir sem fato novo
+
+- **Pipeline fixo de seis etapas** (ADR-0019). Etapas livres foram recusadas: exigiriam reescrever 9 funções, 18 views e 3 arquivos do front que dependem do significado de cada etapa
+- **Frases automáticas configuráveis por cliente**, versão enxuta, dentro do IMP-226
+- **Rótulos de etapa por cliente** no backlog (IMP-228), com gatilho: primeiro cliente fora de clínica, ou a decisão de tirar a QuickClean do GHL
+- **Purchase quando o valor está pendente**: decisão em aberto no IMP-217, tomada quando a tarefa começar

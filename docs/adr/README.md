@@ -24,3 +24,4 @@ As mais consultadas:
 | ADR | Assunto |
 |---|---|
 | [0017](ADR-0017-entregar-crm-com-conversoes-desligadas.md) | Entregar o CRM com conversões desligadas |
+| [0019](ADR-0019-pipeline-fixo-frases-e-rotulos-configuraveis.md) | Pipeline fixo; frases e rótulos configuráveis por cliente |
