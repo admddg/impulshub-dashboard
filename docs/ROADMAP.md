@@ -62,14 +62,17 @@ chega aqui é a sobra. Não é defeito de captura.
 
 Uma de cada vez. **Não comece a seguinte antes de a anterior estar em uso.**
 
-### 1 — Publicar o CRM
+### 1 — Publicar o CRM · IMP-227
 Merge de `feat/imp-206-crm-tab` para `main`; o deploy é automático.
+
+IMP-206, 207 e 212 estão com o código pronto, typecheck e build limpos, e
+fecham junto com o IMP-227.
 
 **Pronto quando:** a aba CRM está em `painel.impulshub.com.br` e o smoke test
 prova **variação zero** em `conversion_outbox` para `source_system = 'impuls_crm'`
 — conta antes, move um card, conta depois, diferença exatamente zero.
 
-### 2 — Avaliar em uso
+### 2 — Avaliar em uso · IMP-224
 O Caio opera o painel por alguns dias e anota o que incomoda. Uso real, não
 revisão de código.
 
@@ -79,7 +82,7 @@ nosso CRM para trabalhar**, então escrever aqui não afeta operação nenhuma.
 **Pronto quando:** existe uma lista de incômodos vinda do uso, triada entre
 "corrige agora" e "backlog". Não é para reabrir o que já funciona.
 
-### 3 — Permissões e usuários
+### 3 — Permissões e usuários · IMP-213, IMP-214
 IMP-213 (papéis e visibilidade por aba) e IMP-214 (dois proprietários: CRC e
 Vendas).
 
@@ -93,12 +96,12 @@ Vendas).
 direta**, e o seletor de proprietário mostra apenas usuários operacionais da
 clínica — nunca agência, nunca gestor.
 
-### 4 — Pipeline automatizada
+### 4 — Pipeline automatizada · IMP-225, IMP-226
 
-**4A (pré-requisito):** conectar o WhatsApp comercial da Impuls a uma instância
+**4A · IMP-225 (pré-requisito):** conectar o WhatsApp comercial da Impuls a uma instância
 Stevo. Sem mensagem entrando, não há o que automatizar. Hoje a Impuls tem zero.
 
-**4B:** regras do tipo **"chegou tal mensagem → move para tal etapa"**.
+**4B · IMP-226:** regras do tipo **"chegou tal mensagem → move para tal etapa"**.
 
 O mecanismo **já existe**: `crm.stevo_parse_messages` já move Lead →
 Atendimento na primeira resposta. Regra nova é mais uma condição no mesmo lugar.
@@ -110,8 +113,7 @@ distribuição entre atendentes, inbox, campanhas.
 **Pronto quando:** uma regra roda sozinha em conversa real da Impuls e o Caio
 confia nela.
 
-### 5 — Conversões e tracking
-IMP-215 a IMP-219.
+### 5 — Conversões e tracking · IMP-215 a IMP-219
 
 O estado medido:
 
