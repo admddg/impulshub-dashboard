@@ -11,13 +11,15 @@ Antes de começar qualquer tarefa, responda em uma linha:
 
 **Não coube em uma linha, não começa.** Escale em vez de adivinhar.
 
-## Missão do sprint atual
+## Missão
 
-> O cliente novo entra operando um CRM que não depende do GHL. Prazo: **09/10/2026**.
+> **O sistema é construído para os clientes NOVOS.** Cliente novo entra 100% na nossa estrutura, sem GHL.
 
-Não é construir um sistema operacional de crescimento. Não é substituir o GHL dos clientes atuais. É dar ao próximo cliente uma tela onde a clínica trabalha leads, emitindo os eventos que o dashboard e as conversões já consomem.
+Royal, Central e QuickClean **permanecem no GoHighLevel, definitivamente**. Não são alvo de migração — servem como laboratório: aprendizado, modelagem e teste. A **Impuls** é o primeiro cliente de verdade do sistema novo.
 
-Royal, Central, QuickClean e ImpulsHub **permanecem no GHL, congelados**. Não existe migração neste sprint.
+Não é construir um sistema operacional de crescimento. Não é substituir o GHL de ninguém. É dar ao próximo cliente uma tela onde a clínica trabalha leads, emitindo os eventos que o dashboard e as conversões já consomem.
+
+**Não há prazo.** O critério de entrada está em [`docs/ROADMAP.md`](docs/ROADMAP.md), que é a fonte única de direção — se este arquivo divergir dele, o ROADMAP vale.
 
 ## O que já existe e funciona — não reconstrua
 
@@ -43,7 +45,7 @@ Tocar em qualquer uma dessas sem tarefa explícita é fora de escopo.
                                       crm ──► n8n 1.1 ──►└──► Meta / Google Conversions
 ```
 
-## Estado em 18/09/2026
+## Estado em 20/09/2026
 
 Já **em produção** no projeto `Clients_Base` (`mtxnwtqwfagjzkvgsncs`):
 
@@ -51,10 +53,14 @@ Já **em produção** no projeto `Clients_Base` (`mtxnwtqwfagjzkvgsncs`):
 |---|---|
 | Schema `crm`, 14 tabelas, RLS nas 14 | ✅ |
 | Parser do Stevo | ✅ roda a cada minuto por `pg_cron` |
-| Dados | 621 contatos, 240 oportunidades, 8.854 atividades, 3 clientes |
+| 12 migrations, ledger batendo com o repositório | ✅ |
 | Atribuição de mídia na oportunidade | ✅ `ctwa_clid`, `meta_ad_id`, `conversion_source` |
+| Ponte de conversões (IMP-205) | ✅ aplicada, **inerte** — flag `false` nos 6 clientes |
 
-Falta: a **aba CRM** (IMP-206/207) e o **adaptador de eventos** (IMP-205).
+**A aba CRM está pronta em `feat/imp-206-crm-tab` e ainda não foi publicada.**
+Produção roda `b43b805`, sem ela. O banco está à frente do que está no ar.
+
+Números por cliente e etapas seguintes: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## ⚠️ A restrição que muda como se escreve o frontend
 

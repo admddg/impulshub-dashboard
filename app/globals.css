@@ -542,3 +542,156 @@ footer{padding:28px 0 40px;color:var(--ink-faint);font-size:12px;text-align:cent
   .ag-drawer-step{grid-template-columns:1fr}
   .ag-drawer-step-reason{grid-column:1}
 }
+
+/* ---------- CRM (IMP-206 / IMP-207) ---------- */
+.crm-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.crm-readonly{font-size:12px;color:var(--ink-faint);border:1px solid var(--line);background:var(--surface);border-radius:20px;padding:4px 12px}
+
+.crm-aviso{display:flex;align-items:flex-start;gap:10px;justify-content:space-between;background:#f7f0dd;border-radius:var(--radius);padding:11px 14px;font-size:13px;color:var(--ink);margin-bottom:14px;line-height:1.45}
+.crm-aviso button{background:none;border:0;font-size:18px;line-height:1;color:var(--ink-soft);cursor:pointer;flex:0 0 auto}
+
+.crm-badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;white-space:nowrap}
+.crm-badge.is-new{background:#eef0f2;color:var(--ink-soft)}
+.crm-badge.is-mid{background:#e7f0f3;color:var(--petrol)}
+.crm-badge.is-won{background:var(--up-bg);color:var(--up)}
+.crm-badge.is-lost{background:var(--down-bg);color:var(--down)}
+
+/* Kanban: 6 colunas que rolam na horizontal. Cada coluna rola por dentro, e a
+   contagem no topo vem agregada do banco - nunca do que foi carregado. */
+.crm-board{display:grid;grid-auto-flow:column;grid-auto-columns:260px;gap:12px;overflow-x:auto;padding-bottom:12px;margin-bottom:8px}
+.crm-col{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);display:flex;flex-direction:column;min-height:180px;max-height:68vh}
+.crm-col-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 13px;border-bottom:1px solid var(--line);background:var(--surface);border-radius:var(--radius) var(--radius) 0 0}
+.crm-col-name{font-size:12.5px;font-weight:600;color:var(--petrol)}
+.crm-col-count{font-size:11px;font-weight:700;color:var(--ink-soft);background:#eef0f2;border-radius:10px;padding:1px 8px}
+.crm-col-body{padding:10px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.crm-col-empty{font-size:12.5px;color:var(--ink-faint);padding:14px 4px;text-align:center}
+.crm-col-more{width:100%;border:1px dashed var(--line);background:var(--surface);border-radius:8px;padding:9px;font:inherit;font-size:12px;color:var(--ink-soft);cursor:pointer}
+.crm-col-more:hover:not(:disabled){border-color:var(--petrol);color:var(--petrol)}
+.crm-col-more:disabled{opacity:.6;cursor:not-allowed}
+
+/* `flex:0 0 auto` e o que conserta o card fatiado, e nao e detalhe.
+   `.crm-col-body` e um flex column com altura limitada pelo `max-height` da
+   coluna. Item flex tem `flex-shrink:1` por omissao, entao o Chrome comprimia
+   os cards para caber em vez de deixar a coluna rolar: medido em 20px por card
+   na Royal em Atendimento e 32px na Central, com o overflow:hidden daqui
+   cortando o conteudo no meio da linha. Sem encolher, a coluna transborda e o
+   `overflow-y:auto` do body faz o que devia fazer desde o inicio. */
+.crm-card{flex:0 0 auto;background:var(--surface);border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow);overflow:hidden}
+/* Altura uniforme: sem o clamp, um nome longo quebrava em duas linhas, o card
+   crescia e o overflow:hidden do .crm-card cortava o resto. Coluna com cards
+   de alturas diferentes fica ilegivel na Royal. */
+/* RESERVA LINHA, nao limita pixel.
+   `height:120px` no contêiner foi o erro anterior: altura fixa com
+   overflow:hidden nao empurra o excesso, corta no meio da linha. Aqui a altura
+   do card e a SOMA de blocos que declaram quantas linhas ocupam, entao todos
+   os cards fecham igual sem nada para cortar.
+   Cada bloco declara `height` em `em` da propria fonte: e o que impede um
+   emoji com zero-width joiner (`Matheus Ruan 🏴‍☠️`, `magnivaldo🚴🏻‍♂️…`) de
+   inflar a caixa de linha muito alem do line-height e estourar o card. */
+.crm-card-open{display:flex;flex-direction:column;justify-content:flex-start;height:auto;width:100%;text-align:left;background:none;border:0;padding:13px 14px;cursor:pointer;font:inherit}
+.crm-card-open:hover{background:#fafbfb}
+.crm-card-name{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word;height:1.45em;line-height:1.45;font-size:15px;font-weight:600;color:var(--ink)}
+/* Duas linhas reservadas mesmo quando o texto tem uma so, ou nenhuma: e o que
+   faz o card sem campanha ter a mesma altura do vizinho. "ROYAL ODONTOLOGIA -
+   IMPLANTES ..." numa linha so nao dizia qual anuncio era. */
+.crm-card-ad{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;overflow:hidden;word-break:break-word;height:2.7em;line-height:1.35;font-size:12.5px;color:var(--ink-soft);margin-top:6px}
+.crm-card-meta{display:block;height:1.45em;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--ink-faint);margin-top:6px}
+.crm-card-next{width:100%;border:0;border-top:1px solid var(--line);background:var(--bg);padding:10px;font:inherit;font-size:12.5px;font-weight:600;color:var(--petrol);cursor:pointer}
+.crm-card-next:hover:not(:disabled){background:var(--petrol);color:#fff}
+.crm-card-next:disabled{opacity:.6;cursor:not-allowed}
+
+/* Lista de contatos */
+.crm-search{margin-bottom:14px}
+.crm-search input{width:100%;max-width:420px;padding:10px 13px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:14px;background:var(--surface);color:var(--ink)}
+.crm-search input:focus{outline:none;border-color:var(--petrol);box-shadow:0 0 0 3px rgba(0,49,61,.08)}
+.crm-link{background:none;border:0;padding:0;font:inherit;font-size:13px;font-weight:600;color:var(--petrol);cursor:pointer;text-align:left}
+.crm-link:hover{text-decoration:underline}
+.crm-wa-mini{font-size:11.5px;color:var(--mint-deep);text-decoration:none;font-weight:600;white-space:nowrap}
+.crm-wa-mini:hover{text-decoration:underline}
+
+/* Card aberto */
+.crm-wa{display:block;text-align:center;background:var(--mint-deep);color:#fff;text-decoration:none;font-size:13.5px;font-weight:600;padding:11px;border-radius:8px;margin-bottom:4px}
+.crm-wa:hover{background:#4e9a82}
+.crm-owner{width:100%;margin-top:2px;font-size:12.5px}
+
+.crm-origem{display:flex;gap:11px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:11px}
+.crm-origem-img{width:56px;height:56px;object-fit:cover;border-radius:7px;flex:0 0 56px;background:var(--bg)}
+.crm-origem-txt{min-width:0;display:flex;flex-direction:column;gap:2px}
+.crm-origem-camp{font-size:12.5px;font-weight:600;color:var(--ink);line-height:1.3}
+.crm-origem-set{font-size:11.5px;color:var(--ink-soft);line-height:1.3}
+.crm-origem-ad{font-size:11.5px;color:var(--ink-soft);line-height:1.3}
+.crm-origem-title{font-size:12px;color:var(--petrol);font-style:italic;margin-top:2px}
+.crm-origem-meta{font-size:11px;color:var(--ink-faint);margin-top:3px}
+.crm-origem-meta a{color:var(--ink-faint)}
+
+/* Acoes de escrita */
+.crm-actions{margin-top:2px}
+.crm-actions-row{display:flex;gap:7px;flex-wrap:wrap}
+.crm-btn{flex:1 1 auto;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:9px 12px;font:inherit;font-size:12.5px;font-weight:600;color:var(--ink-soft);cursor:pointer;white-space:nowrap}
+.crm-btn:hover:not(:disabled){border-color:var(--petrol);color:var(--petrol)}
+.crm-btn:disabled{opacity:.6;cursor:not-allowed}
+.crm-btn-primary{background:var(--petrol);border-color:var(--petrol);color:#fff}
+.crm-btn-primary:hover:not(:disabled){background:var(--petrol-deep);color:#fff}
+.crm-btn-win{color:var(--up)}
+.crm-btn-win:hover:not(:disabled){border-color:var(--up);color:var(--up)}
+.crm-btn-lost{color:var(--down)}
+.crm-btn-lost:hover:not(:disabled){border-color:var(--down);color:var(--down)}
+
+.crm-form{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:13px;display:flex;flex-direction:column;gap:7px}
+.crm-form label{font-size:11.5px;font-weight:600;color:var(--ink-soft)}
+.crm-form input,.crm-form textarea,.crm-form select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px;color:var(--ink);background:var(--surface);resize:vertical}
+.crm-form input:focus,.crm-form textarea:focus,.crm-form select:focus{outline:none;border-color:var(--petrol);box-shadow:0 0 0 3px rgba(0,49,61,.08)}
+.crm-req{font-weight:500;color:var(--down);text-transform:none;letter-spacing:0}
+.crm-hint{font-size:11.5px;color:var(--ink-faint);line-height:1.45}
+.crm-erro{font-size:12.5px;color:var(--down);background:var(--down-bg);border-radius:7px;padding:8px 10px;line-height:1.4}
+.crm-terminal-note{background:var(--bg);border-radius:var(--radius);padding:12px 14px;font-size:13px;color:var(--ink-soft)}
+
+/* Historico e conversa */
+.crm-timeline{display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.crm-tl-item{background:var(--surface);padding:9px 12px;display:grid;grid-template-columns:118px 1fr;gap:10px;align-items:baseline}
+.crm-tl-when{font-size:11px;color:var(--ink-faint);white-space:nowrap}
+.crm-tl-title{font-size:12.5px;color:var(--ink);font-weight:600}
+.crm-tl-meta{font-size:11px;color:var(--ink-faint);margin-top:2px}
+.crm-tl-reason{font-size:12px;color:var(--ink-soft);line-height:1.4;margin-top:3px}
+
+.crm-msgs{display:flex;flex-direction:column;gap:7px;margin-bottom:9px}
+.crm-msg{max-width:88%;border-radius:10px;padding:8px 11px}
+.crm-msg.in{background:var(--bg);align-self:flex-start;border:1px solid var(--line)}
+.crm-msg.out{background:#e7f0f3;align-self:flex-end}
+.crm-msg-body{font-size:12.5px;color:var(--ink);line-height:1.45;white-space:pre-wrap;word-break:break-word}
+.crm-msg-when{font-size:10.5px;color:var(--ink-faint);margin-top:4px}
+
+@media (max-width:640px){
+  .crm-board{grid-auto-columns:82vw}
+  .crm-col{max-height:none}
+  .crm-tl-item{grid-template-columns:1fr}
+  .crm-actions-row{flex-direction:column}
+}
+
+/* Filtros do topo da aba CRM (IMP-212). Valem para o kanban; a contagem de
+   cada coluna e os cards usam o mesmo recorte, pela mesma semantica de data. */
+.crm-filters{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:11px 13px}
+.crm-filter{display:flex;flex-direction:column;gap:4px}
+.crm-filter label{font-size:11px;font-weight:600;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.04em}
+.crm-filter input,.crm-filter select{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 11px;font:inherit;font-size:13px;color:var(--ink)}
+.crm-filter input:focus,.crm-filter select:focus{outline:none;border-color:var(--petrol);box-shadow:0 0 0 3px rgba(0,49,61,.08)}
+.crm-filters-clear{flex:0 0 auto}
+
+@media (max-width:640px){
+  .crm-filters{align-items:stretch}
+  .crm-filter{flex:1 1 100%}
+  .crm-filter input,.crm-filter select{width:100%}
+}
+/* .badge era usado por components/tabs/LeadsTab.tsx sem nunca ter sido
+   definido, entao a coluna Etapa e a de plataforma renderizavam como texto
+   solto. Bug pre-existente do legado, nao do CRM. Os modificadores ficam em
+   seletor composto (.badge.scale) para nao colidir com nomes genericos.
+   A coluna de plataforma passa cor inline, que continua vencendo. */
+.badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;white-space:nowrap}
+.badge.keep{background:#eef0f2;color:var(--ink-soft)}
+.badge.watch{background:#e7f0f3;color:var(--petrol)}
+.badge.scale{background:var(--up-bg);color:var(--up)}
+.badge.pause{background:var(--down-bg);color:var(--down)}
+/* Rotulo do intervalo resolvido, embaixo da barra de filtros (IMP-212 r2).
+   Com preset, e o que responde "7 dias pegou quais dias". */
+.crm-filters-range{font-size:12px;color:var(--ink-soft);margin:-6px 4px 14px}
