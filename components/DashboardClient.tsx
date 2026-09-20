@@ -45,6 +45,18 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
   const [period, setPeriod] = useState<Period>('30d')
   const [custom, setCustom] = useState<CustomRange | null>(null)
 
+  // A aba CRM só aparece para a agência.
+  //
+  // Royal, Central e QuickClean operam no GoHighLevel: as etapas que o nosso
+  // parser calcula a partir do WhatsApp não são a verdade da clínica. Mostrar
+  // esse kanban para quem trabalha no GHL cria a pergunta "para onde eu olho?",
+  // e a resposta hoje é "para o GHL" -- então a aba não deve estar lá.
+  //
+  // Não é permissão de verdade, é uma trava temporária: a aba some do menu e o
+  // conteúdo não monta. A camada real de papéis é a IMP-213, que decide por
+  // papel em vez de por "é agência". Esta trava sai quando aquela entrar.
+  const abas = ehAgencia ? TABS : TABS.filter((t) => t.id !== 'crm')
+
   useEffect(() => {
     let alive = true
     ;(async () => {
@@ -146,7 +158,7 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
         </div>
 
         <div className="tabs">
-          {TABS.map((t) => (
+          {abas.map((t) => (
             <button key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
               {t.label}
             </button>
@@ -154,7 +166,7 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
         </div>
 
         {tab === 'overview' && <OverviewTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
-        {tab === 'crm' && <CrmTab clientId={clientId} />}
+        {tab === 'crm' && ehAgencia && <CrmTab clientId={clientId} />}
         {tab === 'funnel' && <FunnelTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
         {tab === 'channels' && <ChannelsTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
         {tab === 'meta' && <MetaTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
