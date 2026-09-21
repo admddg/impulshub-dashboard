@@ -112,11 +112,14 @@ stage_position                 smallint
 is_terminal                    boolean
 status                         text       open | won | lost
 stage_version                  integer    <- o frontend devolve isto no move
-owner_profile_id               uuid
-owner_name                     text
-opened_at                      timestamptz
-closed_at                      timestamptz
-last_activity_at               timestamptz
+crc_owner_profile_id            uuid       dono de atendimento (CRC)
+crc_owner_name                  text
+sales_owner_profile_id          uuid       dono de vendas
+sales_owner_name                text
+opened_at                       timestamptz
+closed_at                       timestamptz
+last_activity_at                timestamptz
+origem                          text       anuncio | organico
 meta_ad_id                     text
 ad_name                        text
 adset_name                     text
@@ -247,22 +250,24 @@ conversa de WhatsApp, cresce sem teto.
 
 ### 3.6 `v_crm_owners_v1`
 
-Grão: pessoa que pode ser dona de um card, por cliente.
+Grão: pessoa elegível para ser dona de um card, por cliente.
 
 ```
 client_id        uuid
 profile_id       uuid
 display_name     text
-membership_role  text      de crm.tenant_memberships: owner|admin|manager|attendant|integration|viewer
-can_write        boolean   de public.client_users: is_active and lower(role) <> 'viewer'
+membership_role  text
+can_write        boolean
 ```
 
-**Base obrigatória: `crm.tenant_memberships` com `status = 'active'`.** Não é
-escolha de estilo — `opportunities.owner_profile_id` tem FK composta para
-`(tenant_id, profile_id)` dessa tabela. Um dono fora dela é rejeitado.
+A view lista somente `tenant_memberships.status = 'active'` e
+`is_assignable = true`. `is_assignable` é elegibilidade operacional para ser dono
+e não concede autorização de escrita: `can_write` continua vindo de
+`public.client_users`. A mesma pessoa pode ser selecionada como CRC ou Vendas;
+o papel do dono é escolhido no comando, não no membership.
 
-`can_write` sai de `public.client_users` porque é de lá que o trigger lê
-(ver §5).
+A integridade usa FK composta `(tenant_id, profile_id)` e a RPC também valida
+ativo/elegível no mesmo tenant. Agência e gestores não entram por inferência.
 
 ---
 
@@ -355,18 +360,20 @@ validado é o estado no fim da transação.
 
 ---
 
-### 4.2 `crm_set_owner(p_opportunity_id uuid, p_owner_profile_id uuid)`
+### 4.2 `crm_set_owner(p_opportunity_id uuid, p_role text, p_owner_profile_id uuid)`
 
 1. Guarda comum.
-2. `p_owner_profile_id` precisa existir em `crm.tenant_memberships` com
-   `status = 'active'` **no mesmo tenant** -> senão `CRM_INVALID_OWNER`.
-   (A FK composta rejeitaria de qualquer forma; a RPC antecipa a mensagem.)
-3. `update crm.opportunities set owner_profile_id = …, updated_at = now()`.
+2. `p_role` precisa ser `crc` ou `sales`; qualquer outro valor falha com
+   `CRM_INVALID_OWNER_ROLE`.
+3. Se o perfil não for nulo, precisa existir em `crm.tenant_memberships` com
+   `status = 'active'` e `is_assignable = true` no mesmo tenant; senão
+   `CRM_INVALID_OWNER`.
+4. A RPC atualiza somente `crc_owner_profile_id` ou
+   `sales_owner_profile_id`, conforme o papel.
 
-`p_owner_profile_id = null` limpa o dono. Não mexe em `stage_version`:
-atribuir dono não é movimento de etapa.
-
-Hoje: **0 das 240 oportunidades têm dono.** Toda atribuição será a primeira.
+`p_owner_profile_id = null` limpa o dono daquele papel. A atribuição não mexe em
+`stage_version` nem no outro dono. A FK composta e o trigger de validação
+ reforçam a mesma regra para escritas fora da RPC.
 
 ---
 
@@ -442,6 +449,20 @@ texto livre:
 | `CRM_NOTE_REQUIRED` | Motivo `outro` sem nota |
 | `CRM_INVALID_VALUE` / `CRM_INVALID_REASON` / `CRM_INVALID_OWNER` | Entrada inválida |
 | `23514` | `CHECK` do banco que escapou da RPC. Tratado como erro genérico e **reportado**, porque significa que a RPC deixou passar algo |
+
+### 4.6 Filtros de responsável e origem
+
+`crm_board_counts`, `v_crm_cards_v1` e `v_crm_contacts_v1` usam a mesma semântica:
+
+- responsável: `p_owner_role` (`crc` ou `sales`) + perfil, ou `p_unassigned` para
+  "sem responsável";
+- origem: `anuncio` quando `conversion_source`, `ctwa_clid` ou `meta_ad_id` não é
+  nulo; caso contrário `organico`;
+- toda combinação filtra kanban, lista e contagens de coluna de forma idêntica.
+
+A tela exibe `Anúncio` ou `Orgânico` discretamente no card. A mesma membership
+assignable pode aparecer nos dois seletores, pois CRC/Vendas é o papel da
+atribuição, não um papel novo de `tenant_memberships`.
 
 ---
 

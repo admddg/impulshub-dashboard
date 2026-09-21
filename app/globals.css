@@ -623,6 +623,7 @@ footer{padding:28px 0 40px;color:var(--ink-faint);font-size:12px;text-align:cent
 .crm-origem-title{font-size:12px;color:var(--petrol);font-style:italic;margin-top:2px}
 .crm-origem-meta{font-size:11px;color:var(--ink-faint);margin-top:3px}
 .crm-origem-meta a{color:var(--ink-faint)}
+.crm-origem-badge{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}.crm-origem-badge.anuncio{color:var(--petrol)}.crm-origem-badge.organico{color:var(--ink-faint)}
 
 /* Acoes de escrita */
 .crm-actions{margin-top:2px}

@@ -211,20 +211,49 @@ export default function CrmTab({ clientId }: { clientId: string }) {
         )}
 
         <div className="crm-filter">
-          <label htmlFor="crm-owner">Proprietário</label>
+          <label htmlFor="crm-owner-role">Responsável</label>
+          <select
+            id="crm-owner-role"
+            className="select-native"
+            value={filtros.ownerRole}
+            onChange={(e) => mudaFiltro({ ownerRole: e.target.value as CrmFiltros['ownerRole'], owner: '' })}
+          >
+            <option value="">CRC ou Vendas</option>
+            <option value="crc">CRC</option>
+            <option value="sales">Vendas</option>
+          </select>
+        </div>
+
+        <div className="crm-filter">
+          <label htmlFor="crm-owner">Pessoa</label>
           <select
             id="crm-owner"
             className="select-native"
             value={filtros.owner}
+            disabled={!filtros.ownerRole}
             onChange={(e) => mudaFiltro({ owner: e.target.value })}
           >
             <option value="">Todos</option>
-            <option value={SEM_PROPRIETARIO}>Sem proprietário</option>
+            <option value={SEM_PROPRIETARIO}>Sem responsável</option>
             {owners.map((o) => (
               <option key={o.profile_id} value={o.profile_id}>
                 {o.display_name || 'Sem nome'}
               </option>
             ))}
+          </select>
+        </div>
+
+        <div className="crm-filter">
+          <label htmlFor="crm-origem">Origem</label>
+          <select
+            id="crm-origem"
+            className="select-native"
+            value={filtros.origem}
+            onChange={(e) => mudaFiltro({ origem: e.target.value as CrmFiltros['origem'] })}
+          >
+            <option value="">Todas</option>
+            <option value="anuncio">Anúncio</option>
+            <option value="organico">Orgânico</option>
           </select>
         </div>
 

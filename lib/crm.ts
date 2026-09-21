@@ -3,6 +3,10 @@
 import { supabase } from '@/lib/supabase'
 import { diaDeHojeSPISO } from '@/lib/utils'
 import { valorMonetarioRpcEhValido } from '@/lib/crm-money'
+import { origemDoCard, temFiltro } from '@/lib/imp214-rules'
+import type { OwnerRole, OrigemFiltro } from '@/lib/imp214-rules'
+export { origemDoCard, temFiltro }
+export type { OwnerRole, OrigemFiltro }
 
 // Porta única de entrada do CRM. Tudo que a aba lê ou escreve passa por aqui.
 //
@@ -47,11 +51,14 @@ export type CrmCard = {
   is_terminal: boolean
   status: 'open' | 'won' | 'lost'
   stage_version: number
-  owner_profile_id: string | null
-  owner_name: string | null
+  crc_owner_profile_id: string | null
+  crc_owner_name: string | null
+  sales_owner_profile_id: string | null
+  sales_owner_name: string | null
   opened_at: string
   closed_at: string | null
   last_activity_at: string | null
+  origem: 'anuncio' | 'organico'
   meta_ad_id: string | null
   ad_name: string | null
   adset_name: string | null
@@ -80,6 +87,12 @@ export type CrmContact = {
   stage_label: string | null
   stage_position: number | null
   opportunity_status: string | null
+  opened_at: string | null
+  crc_owner_profile_id: string | null
+  crc_owner_name: string | null
+  sales_owner_profile_id: string | null
+  sales_owner_name: string | null
+  origem: 'anuncio' | 'organico'
   search_text: string | null
 }
 
@@ -129,27 +142,20 @@ export type LossReason = {
 
 export type MyRole = { client_id: string; role: string | null; can_write: boolean }
 
-// Filtros do topo da aba. `owner` é um campo só de propósito: os três estados
-// são mutuamente exclusivos e o banco trata `p_unassigned` com precedência
-// sobre `p_owner_profile_id`, então dois campos separados só criariam a
-// chance de mandar os dois e descobrir a precedência do jeito difícil.
-//   ''      → todos
-//   'none'  → sem proprietário
-//   <uuid>  → aquele proprietário
+// Filtros do topo da aba. O dono é composto por papel + perfil para que
+// "sem responsável" seja inequívoco entre CRC e Vendas.
 export type CrmFiltros = {
-  de: string // 'YYYY-MM-DD'; '' = sem limite inferior
-  ate: string // 'YYYY-MM-DD'; '' = sem limite superior
+  de: string
+  ate: string
+  ownerRole: OwnerRole | ''
   owner: string
+  origem: OrigemFiltro
 }
 
 export const SEM_PROPRIETARIO = 'none'
 
-// Constante compartilhada, não literal novo a cada chamada: assim
-// `setFiltros(FILTROS_VAZIOS)` com filtro já vazio não dispara recarga.
-export const FILTROS_VAZIOS: CrmFiltros = { de: '', ate: '', owner: '' }
-
-export function temFiltro(f: CrmFiltros): boolean {
-  return !!(f.de || f.ate || f.owner)
+export const FILTROS_VAZIOS: CrmFiltros = {
+  de: '', ate: '', ownerRole: '', owner: '', origem: '',
 }
 
 // O dia seguinte, em aritmética de data pura e em UTC.
@@ -212,7 +218,7 @@ let padraoEmCache: CrmFiltros | null = null
 export function filtrosPadrao(): CrmFiltros {
   const { de, ate } = intervaloDoPreset(PRESET_PADRAO)
   if (!padraoEmCache || padraoEmCache.de !== de || padraoEmCache.ate !== ate) {
-    padraoEmCache = { de, ate, owner: '' }
+    padraoEmCache = { de, ate, ownerRole: '', owner: '', origem: '' }
   }
   return padraoEmCache
 }
@@ -222,14 +228,15 @@ export function filtrosPadrao(): CrmFiltros {
 const CARD_COLS =
   'client_id, opportunity_id, contact_id, contact_name, phone_normalized, whatsapp_url, title, ' +
   'stage_code, stage_label, stage_position, is_terminal, status, stage_version, ' +
-  'owner_profile_id, owner_name, opened_at, closed_at, last_activity_at, ' +
+  'crc_owner_profile_id, crc_owner_name, sales_owner_profile_id, sales_owner_name, opened_at, closed_at, last_activity_at, origem, ' +
   'meta_ad_id, ad_name, adset_name, campaign_name, creative_name, thumbnail_url, ' +
   'ctwa_clid, conversion_source, entry_point_conversion_source, source_url, ad_title'
 
 const CONTACT_COLS =
   'client_id, contact_id, full_name, phone_normalized, email, whatsapp_url, status, ' +
   'last_activity_at, messages_total, opportunity_id, stage_code, stage_label, ' +
-  'stage_position, opportunity_status'
+  'stage_position, opportunity_status, opened_at, crc_owner_profile_id, crc_owner_name, ' +
+  'sales_owner_profile_id, sales_owner_name, origem, search_text'
 
 export const TAMANHO_COLUNA = 20
 export const TAMANHO_PAGINA_CONTATOS = 50
@@ -305,11 +312,12 @@ export async function fetchBoardCounts(
     p_client_id: clientId,
     p_opened_from: filtros.de || null,
     p_opened_to: filtros.ate || null,
-    // `p_unassigned` tem precedência no banco; mandar os dois seria pedir para
-    // depender dessa precedência em vez de ser explícito.
+    // O filtro de dono é papel + perfil; sem responsável também precisa do papel.
+    p_owner_role: filtros.ownerRole || null,
     p_owner_profile_id:
       filtros.owner && filtros.owner !== SEM_PROPRIETARIO ? filtros.owner : null,
     p_unassigned: filtros.owner === SEM_PROPRIETARIO,
+    p_origin: filtros.origem || null,
   })
 
   if (error) {
@@ -343,8 +351,13 @@ export async function fetchCards(
   // bater com os cards e ninguém descobre por quê.
   if (filtros.de) q = q.gte('opened_at', filtros.de)
   if (filtros.ate) q = q.lt('opened_at', diaSeguinte(filtros.ate))
-  if (filtros.owner === SEM_PROPRIETARIO) q = q.is('owner_profile_id', null)
-  else if (filtros.owner) q = q.eq('owner_profile_id', filtros.owner)
+  if (filtros.owner === SEM_PROPRIETARIO) {
+    if (filtros.ownerRole === 'crc') q = q.is('crc_owner_profile_id', null)
+    else if (filtros.ownerRole === 'sales') q = q.is('sales_owner_profile_id', null)
+    else q = q.is('crc_owner_profile_id', null).is('sales_owner_profile_id', null)
+  } else if (filtros.owner && filtros.ownerRole === 'crc') q = q.eq('crc_owner_profile_id', filtros.owner)
+  else if (filtros.owner && filtros.ownerRole === 'sales') q = q.eq('sales_owner_profile_id', filtros.owner)
+  if (filtros.origem) q = q.eq('origem', filtros.origem)
 
   const { data, error } = await q
     // Ordem estável e total: sem desempate por id, o .range() pode repetir ou
@@ -414,17 +427,16 @@ export async function fetchContacts(
   if (filtros.ate) q = q.lt('opened_at', diaSeguinte(filtros.ate))
 
   if (filtros.owner === SEM_PROPRIETARIO) {
-    // `.is(owner_profile_id, null)` sozinho traria também quem não tem
-    // oportunidade nenhuma — nulo por ausência de oportunidade, não porque
-    // ninguém pegou o lead. Na Royal isso é 308 contra os 178 do kanban, para
-    // o mesmo filtro. Exigir a oportunidade alinha as duas visões e deixa o
-    // filtro de proprietário tratar as mesmas linhas que o de data já trata.
-    q = q.is('owner_profile_id', null).not('opportunity_id', 'is', null)
-  } else if (filtros.owner) {
-    // Aqui o recorte já é automático: sem oportunidade, `owner_profile_id` é
-    // nulo e `= <uuid>` não casa.
-    q = q.eq('owner_profile_id', filtros.owner)
+    if (filtros.ownerRole === 'crc') q = q.is('crc_owner_profile_id', null)
+    else if (filtros.ownerRole === 'sales') q = q.is('sales_owner_profile_id', null)
+    else q = q.is('crc_owner_profile_id', null).is('sales_owner_profile_id', null)
+    q = q.not('opportunity_id', 'is', null)
+  } else if (filtros.owner && filtros.ownerRole === 'crc') {
+    q = q.eq('crc_owner_profile_id', filtros.owner)
+  } else if (filtros.owner && filtros.ownerRole === 'sales') {
+    q = q.eq('sales_owner_profile_id', filtros.owner)
   }
+  if (filtros.origem) q = q.eq('origem', filtros.origem)
 
   const termo = escapaBusca(busca)
   if (termo) q = q.ilike('search_text', `%${termo}%`)
@@ -563,9 +575,14 @@ export function moveStage(
   })
 }
 
-export function setOwner(opportunityId: string, ownerProfileId: string | null): Promise<ResultadoAcao> {
+export function setOwner(
+  opportunityId: string,
+  role: OwnerRole,
+  ownerProfileId: string | null
+): Promise<ResultadoAcao> {
   return chamaRpc('crm_set_owner', {
     p_opportunity_id: opportunityId,
+    p_role: role,
     p_owner_profile_id: ownerProfileId,
   })
 }
