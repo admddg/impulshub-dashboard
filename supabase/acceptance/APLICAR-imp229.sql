@@ -1,3 +1,6 @@
+-- IMP-229: arquivo de aplicação manual.
+-- Executar somente após revisão e autorização de produção.
+
 -- IMP-229: substitui a avaliação por linha da membership nas cinco RLS de leitura.
 -- A migration é deliberadamente independente da IMP-213.
 
@@ -149,5 +152,9 @@ begin
   end if;
 end;
 $gate$;
+
+insert into supabase_migrations.schema_migrations (version, name)
+values ('20260927000000', 'imp229_rls_client_ids')
+on conflict (version) do nothing;
 
 commit;
