@@ -311,6 +311,13 @@ set constraints all immediate;
 
 drop table if exists crm.event_map;
 alter table public.clients_base drop column if exists crm_feeds_dashboard;
+do $rollback_guard$
+begin
+  if exists (select 1 from public.events_normalized where ghl_location_id is null) then
+    raise exception 'IMP216_ROLLBACK: existem eventos sem ghl_location_id fora do conjunto removido; NOT NULL nao foi restaurado';
+  end if;
+end
+$rollback_guard$;
 alter table public.events_normalized alter column ghl_location_id set not null;
 
 commit;
