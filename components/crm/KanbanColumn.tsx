@@ -124,7 +124,9 @@ export default function KanbanColumn({
                     {card.campaign_name ?? ''}
                   </span>
                   <span className="crm-card-meta">
-                    {card.owner_name ? card.owner_name : 'Sem proprietário'}
+                    <span className={`crm-origem-badge ${card.origem}`}>{card.origem === 'anuncio' ? 'Anúncio' : 'Orgânico'}</span>
+                    {' · '}
+                    {card.crc_owner_name || card.sales_owner_name || 'Sem responsável'}
                     {' · '}
                     {fmtDataCurta(card.last_activity_at)}
                   </span>

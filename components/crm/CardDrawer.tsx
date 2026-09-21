@@ -6,7 +6,7 @@ import {
   fmtDataHora, fmtTelefone, classeEtapa,
   TAMANHO_MENSAGENS,
   type BoardCount, type CrmCard, type CrmHistoryEvent, type CrmActivity,
-  type CrmOwner, type LossReason,
+  type CrmOwner, type LossReason, type OwnerRole,
 } from '@/lib/crm'
 import { brl } from '@/lib/utils'
 import MoveActions from '@/components/crm/MoveActions'
@@ -91,15 +91,25 @@ export default function CardDrawer({
     setMaisMsgs(false)
   }
 
-  async function trocaDono(profileId: string) {
+  async function trocaDono(role: OwnerRole, profileId: string) {
     setTrocandoDono(true)
-    const { card: novo, erro } = await setOwner(card.opportunity_id, profileId || null)
+    const { card: novo, erro } = await setOwner(card.opportunity_id, role, profileId || null)
     setTrocandoDono(false)
     if (erro) { onAviso(erro.mensagem); return }
     if (novo) onChanged(novo)
   }
 
-  const temAtribuicao = !!(card.campaign_name || card.ad_name || card.meta_ad_id)
+  const temAtribuicao = card.origem === 'anuncio'
+  const ownerOptions = (role: OwnerRole) => (
+    <>
+      <option value="">Sem responsável</option>
+      {owners.map((o) => (
+        <option key={o.profile_id} value={o.profile_id}>
+          {o.display_name || 'Sem nome'}
+        </option>
+      ))}
+    </>
+  )
 
   return (
     <div className="ag-drawer-backdrop" onClick={onClose}>
@@ -126,24 +136,30 @@ export default function CardDrawer({
           <div><span>Aberto em</span><b>{fmtDataHora(card.opened_at)}</b></div>
           <div><span>Última atividade</span><b>{fmtDataHora(card.last_activity_at)}</b></div>
           <div>
-            <span>Proprietário</span>
+            <span>Atendimento (CRC)</span>
             {canWrite ? (
               <select
                 className="select-native crm-owner"
-                value={card.owner_profile_id ?? ''}
+                value={card.crc_owner_profile_id ?? ''}
                 disabled={trocandoDono}
-                onChange={(e) => trocaDono(e.target.value)}
+                onChange={(e) => trocaDono('crc', e.target.value)}
               >
-                <option value="">Sem proprietário</option>
-                {owners.map((o) => (
-                  <option key={o.profile_id} value={o.profile_id}>
-                    {o.display_name || 'Sem nome'}
-                  </option>
-                ))}
+                {ownerOptions('crc')}
               </select>
-            ) : (
-              <b>{card.owner_name || 'Sem proprietário'}</b>
-            )}
+            ) : <b>{card.crc_owner_name || 'Sem responsável'}</b>}
+          </div>
+          <div>
+            <span>Vendas</span>
+            {canWrite ? (
+              <select
+                className="select-native crm-owner"
+                value={card.sales_owner_profile_id ?? ''}
+                disabled={trocandoDono}
+                onChange={(e) => trocaDono('sales', e.target.value)}
+              >
+                {ownerOptions('sales')}
+              </select>
+            ) : <b>{card.sales_owner_name || 'Sem responsável'}</b>}
           </div>
         </div>
 
