@@ -129,10 +129,10 @@ clínica — nunca agência, nunca gestor.
 ### 4 — Pipeline automatizada · IMP-225, IMP-226
 
 **IMP-225 está concluída:** a Impuls foi conectada ao Stevo.
-**IMP-226 fase 1 está em curso:** toda conversa individual nova abre card;
-grupos não abrem card.
+**IMP-226 fase 1 está em curso:** toda conversa individual nova abre card,
+seja recebida ou iniciada por nós; grupos, LID e mensagens incompletas não abrem card.
 
-**4A · IMP-225 (pré-requisito):** conectar o WhatsApp comercial da Impuls a uma instância
+**4A · IMP-225 (concluída):** conectar o WhatsApp comercial da Impuls a uma instância
 Stevo. A conexão está feita; a fase 1 trata da abertura de cards em conversas individuais.
 
 **4B · IMP-226:** regras do tipo **"chegou tal mensagem → move para tal etapa"**, com a frase **configurável por cliente** (ADR-0019): tabela `(cliente, etapa, frase)`, até 5 por etapa, só Atendimento, Agendado e Compareceu, tela em `/agencia` restrita à agência. Ganho e Perdido continuam manuais.
