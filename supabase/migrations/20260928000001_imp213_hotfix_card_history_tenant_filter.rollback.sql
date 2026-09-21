@@ -1,0 +1,10 @@
+-- IMP-213 HOTFIX ROLLBACK RECORD — NÃO EXECUTÁVEL.
+--
+-- A definição anterior de public.v_crm_card_history_v1 vazava dados entre clientes:
+-- "select client_id from private.my_client_ids()" correlacionava com a coluna externa
+-- e tornava o filtro sempre verdadeiro para membros com conta ativa.
+-- Não reaplicar a definição anterior sem a correção do alias implementada em
+-- 20260928000001_imp213_hotfix_card_history_tenant_filter.sql.
+--
+-- Este rollback fica somente como registro histórico. Reverter o hotfix para a
+-- definição anterior não é uma operação segura nem suportada.

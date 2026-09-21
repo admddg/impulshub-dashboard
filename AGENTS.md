@@ -106,6 +106,7 @@ Três camadas, todas no banco:
 2. **Parada.** Nada passa de 2 dias sem entregar algo observável. Estourou, para e escala com evidência.
 3. **Sessão.** Uma por vez na branch principal. Worktree só para caminho comprovadamente disjunto, e quem abre, fecha.
 4. **Teste.** Onde há dinheiro, perda de dado ou vazamento entre clientes. Não em tudo.
+   Toda mudança em view, política de RLS ou função que leia dados de cliente exige teste de isolamento entre clientes, além do teste de papéis.
 5. **Proibido sem "sim" do Caio.** Serviço novo, projeto novo, repositório novo, dependência nova.
 6. **Pronto** = comportamento observável. Documento não é entrega.
 7. **Segredo** nunca entra em código, log, prompt, fixture ou PR. Preserve como `[REDACTED]`.

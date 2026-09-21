@@ -1,6 +1,6 @@
 # Roteiro do ImpulsHub
 
-**Atualizado em 20/09/2026.** Este arquivo é a fonte única de direção. Se outro
+**Atualizado em 21/09/2026.** Este arquivo é a fonte única de direção. Se outro
 documento disser algo diferente, este vale.
 
 ---
@@ -33,12 +33,16 @@ estava produzindo pressa. O critério é a lista da seção "Porta de entrada".
 |---|---|
 | Schema `crm`, 14 tabelas, RLS | ✅ produção |
 | Parser do Stevo (`pg_cron`, 1 min) | ✅ produção |
-| 12 migrations | ✅ produção, ledger batendo com o repositório |
+| 15 migrations | ✅ produção, até `20260928000001` |
 | Aba CRM (kanban, lista, card, filtros) | ✅ publicada em `main` (`c220687`) |
 | Conversões pelo CRM | ⛔ desligadas, cadeia incompleta |
-| Permissões por papel | ⛔ atendente enxerga faturamento |
+| Permissões por papel | ✅ aplicada na IMP-213; hotfix de isolamento do histórico aplicado e registrado |
 
-**Produção roda `c220687`, com a aba CRM publicada.** A ponte de conversões continua inerte.
+**IMP-229 está aplicada e em observação até 23/09/2026.** As policies de leitura
+usam `private.my_client_ids()` com alias explícito no consumo da função.
+**IMP-213 está aplicada com o hotfix do histórico entre clientes.**
+
+**Produção roda `793f72b`, com o painel atualizado.** A ponte de conversões continua inerte.
 
 ### Dados por cliente
 
@@ -124,8 +128,12 @@ clínica — nunca agência, nunca gestor.
 
 ### 4 — Pipeline automatizada · IMP-225, IMP-226
 
+**IMP-225 está concluída:** a Impuls foi conectada ao Stevo.
+**IMP-226 fase 1 está em curso:** toda conversa individual nova abre card;
+grupos não abrem card.
+
 **4A · IMP-225 (pré-requisito):** conectar o WhatsApp comercial da Impuls a uma instância
-Stevo. Sem mensagem entrando, não há o que automatizar. Hoje a Impuls tem zero.
+Stevo. A conexão está feita; a fase 1 trata da abertura de cards em conversas individuais.
 
 **4B · IMP-226:** regras do tipo **"chegou tal mensagem → move para tal etapa"**, com a frase **configurável por cliente** (ADR-0019): tabela `(cliente, etapa, frase)`, até 5 por etapa, só Atendimento, Agendado e Compareceu, tela em `/agencia` restrita à agência. Ganho e Perdido continuam manuais.
 

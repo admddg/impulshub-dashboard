@@ -1,3 +1,7 @@
+-- IMP-213 role visibility. The card-history tenant-filter hotfix is recorded in
+-- 20260928000001_imp213_hotfix_card_history_tenant_filter.sql; apply it after
+-- this migration in a clean rebuild and do not restore the pre-hotfix filter.
+--
 -- IMP-213 regenerated over the post-IMP-229 production state.
 -- Definitions below were read from production on 2026-09-21; no old dump is used.
 
