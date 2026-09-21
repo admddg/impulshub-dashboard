@@ -263,14 +263,16 @@ export async function fetchMyRole(clientId: string): Promise<MyRole> {
   return (data as MyRole) ?? { client_id: clientId, role: null, can_write: false }
 }
 
-// Só quem pode escrever entra no seletor de dono: atribuir um card a quem o
-// banco impede de mover cria uma fila que nunca anda.
+// Entra no seletor de dono quem a view já considera atribuível: ela filtra
+// `tm.status='active' and tm.is_assignable`. Não repetir aqui um filtro de
+// permissão por `can_write` — a RLS de `client_users` faz o LEFT JOIN da view
+// devolver `can_write=false`/nulo para donos válidos na consulta de outro
+// usuário, e o filtro client-side esconderia gente que pode receber card.
 export async function fetchOwners(clientId: string): Promise<CrmOwner[]> {
   const { data, error } = await supabase
     .from('v_crm_owners_v1')
     .select('profile_id, display_name, membership_role, can_write')
     .eq('client_id', clientId)
-    .eq('can_write', true)
     .order('display_name')
 
   if (error) {
