@@ -28,3 +28,9 @@ A decisão foi aplicada inicialmente às policies de leitura de `meta_ads_daily`
 `google_ads_daily`, `google_ads_campaign_daily`, `google_ads_keywords_daily` e
 `events_normalized` pela IMP-229. A migration da IMP-213 será regenerada depois
 para incorporar essa fronteira.
+
+## Regra para funções escalares
+
+Uma migration que cria uma view sobre uma função escalar deve nomear a linha no próprio `FROM` e comparar com o alias escalar: `where gated.client_id in (select m from private.my_client_ids() as m)`. Não se deve escrever `select client_id from private.my_client_ids()` nem comparar `ids.client_id`: `my_client_ids()` retorna `SETOF uuid`, não uma tabela com coluna `client_id`. Funções que retornam `TABLE (client_id uuid)`, como `financial_client_ids()`, são uma forma diferente e podem expor essa coluna nomeada.
+
+O caso real que motivou a regra foi `public.v_crm_card_history_v1`: a definição antiga usava `select client_id from private.my_client_ids()` no filtro externo. PostgreSQL resolveu `client_id` como a coluna da própria view, tornando o predicado verdadeiro para qualquer membro e vazando histórico entre clientes. O hotfix `20260928000001_imp213_hotfix_card_history_tenant_filter` usa `select m from private.my_client_ids() as m` e adiciona aceite de isolamento por view e por papel.
