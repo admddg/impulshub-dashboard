@@ -1,4 +1,7 @@
 -- IMP-213 regenerated over IMP-229. Apply only after review.
+-- The card-history tenant-filter hotfix is recorded in
+-- 20260928000001_imp213_hotfix_card_history_tenant_filter.sql and must follow
+-- this file on a clean rebuild; do not restore the pre-hotfix filter.
 
 -- IMP-213 regenerated over the post-IMP-229 production state.
 -- Definitions below were read from production on 2026-09-21; no old dump is used.
