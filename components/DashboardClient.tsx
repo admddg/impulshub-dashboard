@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { resolveClient, getMyClients, amIAgencyUser } from '@/lib/access'
+import { resolveClient, getMyClients, getMyClientRole, amIAgencyUser } from '@/lib/access'
+import { tabsVisiveisParaPapel } from '@/lib/role-visibility'
 import { type Period, type CustomRange } from '@/lib/utils'
 import PeriodSelector from '@/components/PeriodSelector'
 import OverviewTab from '@/components/tabs/OverviewTab'
@@ -40,22 +41,16 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
   const [clientName, setClientName] = useState('')
   const [multiClient, setMultiClient] = useState(false)
   const [ehAgencia, setEhAgencia] = useState(false)
+  const [papel, setPapel] = useState<string | null>(null)
 
   const [tab, setTab] = useState<Tab>('overview')
   const [period, setPeriod] = useState<Period>('30d')
   const [custom, setCustom] = useState<CustomRange | null>(null)
 
-  // A aba CRM só aparece para a agência.
-  //
-  // Royal, Central e QuickClean operam no GoHighLevel: as etapas que o nosso
-  // parser calcula a partir do WhatsApp não são a verdade da clínica. Mostrar
-  // esse kanban para quem trabalha no GHL cria a pergunta "para onde eu olho?",
-  // e a resposta hoje é "para o GHL" -- então a aba não deve estar lá.
-  //
-  // Não é permissão de verdade, é uma trava temporária: a aba some do menu e o
-  // conteúdo não monta. A camada real de papéis é a IMP-213, que decide por
-  // papel em vez de por "é agência". Esta trava sai quando aquela entrar.
-  const abas = ehAgencia ? TABS : TABS.filter((t) => t.id !== 'crm')
+  const papelEfetivo = ehAgencia ? 'agency' : papel
+  const idsVisiveis = tabsVisiveisParaPapel(papelEfetivo, TABS.map((item) => item.id))
+  const abas = TABS.filter((item) => idsVisiveis.includes(item.id))
+  const tabPermitida = idsVisiveis.includes(tab)
 
   useEffect(() => {
     let alive = true
@@ -75,10 +70,21 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
 
       // "trocar cliente" depende de ter mais de um cliente. Já o acesso à área
       // interna depende de role = 'agency' no banco — não do número de clientes.
-      const [list, agencia] = await Promise.all([getMyClients(), amIAgencyUser()])
+      const [list, agencia, role] = await Promise.all([
+        getMyClients(),
+        amIAgencyUser(),
+        getMyClientRole(client.client_id),
+      ])
       if (!alive) return
       setMultiClient(list.length > 1)
       setEhAgencia(agencia)
+      setPapel(role)
+
+      const permitidas = tabsVisiveisParaPapel(
+        agencia ? 'agency' : role,
+        TABS.map((item) => item.id),
+      )
+      setTab((atual) => permitidas.includes(atual) ? atual : (permitidas[0] ?? atual))
 
       setGate('ok')
     })()
@@ -165,15 +171,15 @@ export default function DashboardClient({ clientSlug }: { clientSlug: string }) 
           ))}
         </div>
 
-        {tab === 'overview' && <OverviewTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
-        {tab === 'crm' && ehAgencia && <CrmTab clientId={clientId} />}
-        {tab === 'funnel' && <FunnelTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
-        {tab === 'channels' && <ChannelsTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
-        {tab === 'meta' && <MetaTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
-        {tab === 'google' && <GoogleTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
-        {tab === 'leads' && <LeadsTab clientId={clientId} period={period} custom={custom} />}
-        {tab === 'events' && <EventsTab clientId={clientId} />}
-        {tab === 'diario' && <DiarioTab clientId={clientId} period={period} custom={custom} />}
+        {tabPermitida && tab === 'overview' && <OverviewTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
+        {tabPermitida && tab === 'crm' && <CrmTab clientId={clientId} />}
+        {tabPermitida && tab === 'funnel' && <FunnelTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
+        {tabPermitida && tab === 'channels' && <ChannelsTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
+        {tabPermitida && tab === 'meta' && <MetaTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
+        {tabPermitida && tab === 'google' && <GoogleTab clientId={clientId} period={period} periodLabel={periodLabel} custom={custom} />}
+        {tabPermitida && tab === 'leads' && <LeadsTab clientId={clientId} period={period} custom={custom} />}
+        {tabPermitida && tab === 'events' && <EventsTab clientId={clientId} />}
+        {tabPermitida && tab === 'diario' && <DiarioTab clientId={clientId} period={period} custom={custom} />}
       </div>
 
       <footer>ImpulsHub · Dados atualizados diariamente · Fuso America/São_Paulo</footer>

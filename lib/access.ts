@@ -7,6 +7,21 @@ export type ClientAccess = {
   client_name: string
 }
 
+export async function getMyClientRole(clientId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('v_crm_my_role_v1')
+    .select('role')
+    .eq('client_id', clientId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[Impuls] v_crm_my_role_v1:', error.message)
+    return null
+  }
+
+  return typeof data?.role === 'string' ? data.role : null
+}
+
 // Lista todos os clientes que o usuário logado pode ver.
 // A v_client_profile_safe já é protegida por RLS: retorna apenas os clientes
 // aos quais o usuário tem acesso via client_users. Então a segurança vem do banco.

@@ -24,5 +24,6 @@ As mais consultadas:
 | ADR | Assunto |
 |---|---|
 | [0017](ADR-0017-entregar-crm-com-conversoes-desligadas.md) | Entregar o CRM com conversões desligadas |
+| [0018](ADR-0018-client-users-autoridade-de-papeis.md) | `client_users` como autoridade de papéis do produto |
 | [0019](ADR-0019-pipeline-fixo-frases-e-rotulos-configuraveis.md) | Pipeline fixo; frases e rótulos configuráveis por cliente |
 | [0020](ADR-0020-policies-rls-client-ids.md) | Policies de leitura usam conjunto de client IDs via helper definidor |
