@@ -34,16 +34,16 @@ estava produzindo pressa. O critério é a lista da seção "Porta de entrada".
 | Schema `crm`, 14 tabelas, RLS | ✅ produção |
 | Parser do Stevo (`pg_cron`, 1 min) | ✅ produção |
 | 12 migrations | ✅ produção, ledger batendo com o repositório |
-| Aba CRM (kanban, lista, card, filtros) | ✅ **publicada** em produção (`c220687`); smoke test passou em 20/09 |
+| Aba CRM (kanban, lista, card, filtros) | ✅ publicada em `main` (`c220687`) |
 | Conversões pelo CRM | ⛔ desligadas, cadeia incompleta |
 | Permissões por papel | ⛔ atendente enxerga faturamento |
 
-**Produção roda `c220687`, com a aba CRM.** Dois cards foram movidos na Central pela interface real e as contagens de conversão do CRM seguiram em zero.
+**Produção roda `c220687`, com a aba CRM publicada.** A ponte de conversões continua inerte.
 
 ### Dados por cliente
 
 | Cliente | Instância Stevo | Mensagens | Oportunidades | Papel |
-|---|---|---|---|---|
+|---|---|---:|---:|---|
 | Royal Odontologia | `royal-closer`, `royal-comercial` | 3.308 | 189 | Laboratório, fica no GHL |
 | Marcos QuickClean | `marcos-quick-clean` | 6.397 | 92 | **Candidata a sair do GHL** depois do IMP-228 (rótulos de etapa). Não é prioridade |
 | Central - Gama | `central-gama-crc` | 137 | 16 | Laboratório, fica no GHL |
@@ -62,11 +62,22 @@ chega aqui é a sobra. Não é defeito de captura.
 
 Uma de cada vez. **Não comece a seguinte antes de a anterior estar em uso.**
 
-### 1 — Publicar o CRM · IMP-227 · ✅ concluída em 20/09
-Merge de `feat/imp-206-crm-tab` para `main`; o deploy é automático.
+### 1 — Publicar o CRM · IMP-227 ✅ concluída
+Merge de `feat/imp-206-crm-tab` para `main` concluído em `c220687`; o deploy é automático.
 
-IMP-206, 207 e 212 estão com o código pronto, typecheck e build limpos, e
-fecham junto com o IMP-227.
+IMP-206, 207 e 212 foram fechadas junto com o IMP-227. O smoke foi executado
+em produção após dois movimentos manuais na Central:
+
+| Verificação | Resultado |
+|---|---:|
+| Eventos CRM em `events_normalized` | 0 |
+| Eventos CRM em `events_raw` | 0 |
+| Linhas CRM em `conversion_outbox` | 0 |
+| Clientes com `crm_emits_conversions` ligada | 0 |
+| Movimentos manuais após o deploy | 2 |
+
+A variação da ponte foi zero. O smoke cobriu movimento de etapa; ganho e perda
+ficam para avaliação na Etapa 2.
 
 **A aba CRM só aparece para a agência.** Royal, Central e QuickClean operam no
 GoHighLevel: as etapas que o parser calcula a partir do WhatsApp não são a
@@ -78,8 +89,9 @@ viewer) e QuickClean (viewer). Tirar Royal e Central do sistema não resolveria:
 o Marcos veria o mesmo desencontro, e perderíamos o dado que serve de
 laboratório.
 
-É trava temporária, não permissão. Sai quando a IMP-213 entrar, que decide por
-papel em vez de por "é agência".
+É trava temporária, não permissão. Sai quando existir flag por cliente em
+IMP-214/onboarding; a IMP-213 não libera o CRM para clínicas que ainda operam
+no GHL.
 
 **Pronto quando:** a aba CRM está em `painel.impulshub.com.br`, **não aparece
 para um login de clínica**, e o smoke test prova **variação zero** em
@@ -137,7 +149,7 @@ O estado medido:
   sempre. **A outbox é um registro, não uma fila.**
 - A ponte exige `ghl_location_id` e lança exceção se vazio — cliente sem GHL
   quebraria ao mover card.
-- Ganho é emitido **antes** de valor e moeda serem gravados.
+- Ganho é emitido **antes de valor e moeda serem gravados.**
 - Só cria job Meta; Google nunca recebe.
 
 ⚠️ **As 512 linhas pendentes não podem ser enviadas.** São de agosto e setembro.
@@ -154,7 +166,6 @@ de Eventos da Meta, e o runbook de ativação (IMP-219) existe.
 ---
 
 ## Porta de entrada do próximo cliente
-
 Cliente novo só entra com tudo abaixo fechado:
 
 - [ ] Sistema publicado e avaliado em uso
@@ -173,8 +184,13 @@ Cliente novo só entra com tudo abaixo fechado:
   push em `main`, deploy, DDL, migrations, flags e escrita em dados de produção.
   **Merge e deploy de produção nunca são delegados implicitamente.** Push de
   feature branch para revisão não é escrita em produção
-- Revisão independente em toda mudança de RLS, view ou função `SECURITY DEFINER`
-- Nenhum executor aprova o próprio trabalho de risco médio ou alto
+- A execução ocorre em uma única sessão, sem estrutura de coordenador,
+  supervisor, executores ou subagentes. O agente implementa, mede e reporta;
+  não aplica em produção, não faz merge e não aprova o próprio trabalho de
+  risco médio ou alto.
+- Mudanças de RLS, views ou funções `SECURITY DEFINER` exigem revisão
+  independente em sessão separada do Claude Code. O Caio leva ao revisor o
+  relatório e o diff e confirma a revisão antes de merge ou aplicação.
 - Não trabalhe em `Impuls-Platform` nem em `Impuls-Platform-onda3` — arquivados
 - **Não abra tarefa que não esteja ligada à etapa atual, a um cliente com
   problema, ou a um risco de perda irreversível.** Levantar risco e não agir é

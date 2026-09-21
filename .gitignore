@@ -5,3 +5,4 @@ node_modules
 
 # Artefato do incremental do TypeScript: regenera a cada build.
 tsconfig.tsbuildinfo
+supabase/.temp/
