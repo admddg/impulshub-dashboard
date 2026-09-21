@@ -37,12 +37,12 @@ grant all on table crm.event_map to service_role;
 
 insert into crm.event_map (event_code, stage_code, version, event_name, funnel_step)
 values
-  ('lead', 'lead', 1, 'Lead', 1),
-  ('primeira_conversa', 'atendimento', 1, 'Primeira_Conversa', 2),
-  ('agendado', 'agendado', 1, 'Agendado', 3),
-  ('compareceu', 'compareceu', 1, 'Compareceu', 4),
-  ('ganho', 'ganho', 1, 'Ganho', 5),
-  ('perdido', 'perdido', 1, 'Perdido', 6);
+  ('lead', 'lead', 1, 'Lead', null),
+  ('primeira_conversa', 'atendimento', 1, 'Primeira_Conversa', null),
+  ('agendado', 'agendado', 1, 'Agendado', null),
+  ('compareceu', 'compareceu', 1, 'Compareceu', null),
+  ('ganho', 'ganho', 1, 'Ganho', null),
+  ('perdido', 'perdido', 1, 'Perdido', null);
 
 create or replace function crm.emit_opportunity_stage_event()
 returns trigger
