@@ -3,8 +3,8 @@
 -- A migração é executada transacionalmente pelo Supabase.
 set local lock_timeout = '5s';
 
-drop function public.crm_set_owner(uuid, uuid);
-drop function public.crm_board_counts(uuid, date, date, uuid, boolean);
+drop function public.crm_set_owner(uuid, text, uuid);
+drop function public.crm_board_counts(uuid, date, date, text, uuid, boolean, text);
 drop function public.crm_move_stage(uuid, text, integer, text);
 drop function public.crm_register_won(uuid, text, integer, numeric, text);
 drop function public.crm_register_lost(uuid, text, integer, text);
@@ -406,3 +406,61 @@ grant execute on function public.crm_board_counts(uuid, date, date, uuid, boolea
 grant execute on function public.crm_move_stage(uuid, text, integer, text) to authenticated, service_role;
 grant execute on function public.crm_register_won(uuid, text, integer, numeric, text) to authenticated, service_role;
 grant execute on function public.crm_register_lost(uuid, text, integer, text) to authenticated, service_role;
+
+do $gate$
+declare
+  v_sig text;
+  v_view text;
+begin
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'crm' and table_name = 'opportunities'
+       and column_name = 'owner_profile_id'
+  ) then
+    raise exception 'IMP214_ROLLBACK_GATE: owner_profile_id ausente';
+  end if;
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'crm' and table_name = 'opportunities'
+       and column_name in ('crc_owner_profile_id', 'sales_owner_profile_id')
+  ) then
+    raise exception 'IMP214_ROLLBACK_GATE: colunas de dois donos ainda existem';
+  end if;
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'crm' and table_name = 'tenant_memberships'
+       and column_name = 'is_assignable'
+  ) then
+    raise exception 'IMP214_ROLLBACK_GATE: is_assignable ainda existe';
+  end if;
+  foreach v_sig in array array[
+    'public.crm_set_owner(uuid,uuid)',
+    'public.crm_board_counts(uuid,date,date,uuid,boolean)',
+    'public.crm_move_stage(uuid,text,integer,text)',
+    'public.crm_register_won(uuid,text,integer,numeric,text)',
+    'public.crm_register_lost(uuid,text,integer,text)'
+  ] loop
+    if to_regprocedure(v_sig) is null then
+      raise exception 'IMP214_ROLLBACK_GATE: função antiga ausente: %', v_sig;
+    end if;
+    if has_function_privilege('anon', v_sig, 'execute') then
+      raise exception 'IMP214_ROLLBACK_GATE: anon tem execute: %', v_sig;
+    end if;
+    if not has_function_privilege('authenticated', v_sig, 'execute') then
+      raise exception 'IMP214_ROLLBACK_GATE: authenticated sem execute: %', v_sig;
+    end if;
+  end loop;
+  foreach v_view in array array[
+    'public.v_crm_cards_v1',
+    'public.v_crm_contacts_v1',
+    'public.v_crm_owners_v1'
+  ] loop
+    if to_regclass(v_view) is null then
+      raise exception 'IMP214_ROLLBACK_GATE: view antiga ausente: %', v_view;
+    end if;
+    if not has_table_privilege('anon', v_view, 'select') then
+      raise exception 'IMP214_ROLLBACK_GATE: anon sem select: %', v_view;
+    end if;
+  end loop;
+end;
+$gate$;

@@ -50,7 +50,14 @@ begin
       or (o.sales_owner_profile_id is not null and not exists (
             select 1 from crm.tenant_memberships tm where tm.tenant_id=o.tenant_id and tm.profile_id=o.sales_owner_profile_id and tm.status='active' and tm.is_assignable));
   if bad <> 0 then raise exception 'IMP214_OWNERS: % donos inválidos', bad; end if;
-  if exists (select 1 from public.v_crm_owners_v1 where not is_assignable) then
+  if exists (
+    select 1
+      from public.v_crm_owners_v1 v
+      left join crm.tenant_memberships tm
+        on tm.tenant_id = v.client_id
+       and tm.profile_id = v.profile_id
+     where tm.is_assignable is distinct from true
+  ) then
     raise exception 'IMP214_OWNERS: view devolveu membro não assignable';
   end if;
 end;
@@ -107,17 +114,29 @@ $negative$;
 
 -- Contagens e cards seguem iguais para cada filtro de origem e dono.
 do $counts$
-declare expected bigint; actual bigint; role_code text; origin_code text; profile_id uuid;
+declare expected bigint; actual bigint; role_code text; origin_code text; v_profile uuid;
 begin
   foreach origin_code in array array[null::text, 'anuncio', 'organico'] loop
-    select count(*) into expected from public.v_crm_cards_v1 c where c.client_id='19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid and (origin_code is null or c.origem=origin_code);
-    select coalesce(sum(opportunities),0) into actual from public.crm_board_counts('19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid,null,null,null,null,false,origin_code);
+    select count(*) into expected
+      from public.v_crm_cards_v1 c
+     where c.client_id='19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid
+       and (origin_code is null or c.origem=origin_code);
+    select coalesce(sum(opportunities),0) into actual
+      from public.crm_board_counts('19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid,null,null,null,null,false,origin_code);
     if expected <> actual then raise exception 'IMP214_COUNTS: origem % expected %, actual %', origin_code, expected, actual; end if;
   end loop;
-  select profile_id into profile_id from crm.tenant_memberships where tenant_id='19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid and is_assignable limit 1;
+  select tm.profile_id into v_profile
+    from crm.tenant_memberships tm
+   where tm.tenant_id='19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid
+     and tm.is_assignable
+   limit 1;
   foreach role_code in array array['crc','sales'] loop
-    select count(*) into expected from public.v_crm_cards_v1 c where c.client_id='19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid and (case role_code when 'crc' then c.crc_owner_profile_id else c.sales_owner_profile_id end)=profile_id;
-    select coalesce(sum(opportunities),0) into actual from public.crm_board_counts('19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid,null,null,role_code,profile_id,false,null);
+    select count(*) into expected
+      from public.v_crm_cards_v1 c
+     where c.client_id='19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid
+       and (case role_code when 'crc' then c.crc_owner_profile_id else c.sales_owner_profile_id end)=v_profile;
+    select coalesce(sum(opportunities),0) into actual
+      from public.crm_board_counts('19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid,null,null,role_code,v_profile,false,null);
     if expected <> actual then raise exception 'IMP214_COUNTS: papel % expected %, actual %', role_code, expected, actual; end if;
   end loop;
 end;
