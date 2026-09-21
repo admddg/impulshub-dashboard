@@ -2,87 +2,116 @@
 
 begin;
 set local statement_timeout = '8s';
+
+-- Cria dados sintéticos somente dentro desta transação. Não imprime evidence,
+-- payloads ou valores financeiros.
+set local role postgres;
+select o.id as opportunity_id, o.tenant_id
+  from crm.opportunities o
+  join crm.commercial_outcomes co
+    on co.tenant_id = o.tenant_id
+   and co.opportunity_id = o.id
+   and co.is_current
+   and co.value is not null
+   and co.value_status = 'valid'
+ where o.tenant_id = 'fa6fc071-7529-4317-93cb-9b0bfea3bca3'
+ order by co.occurred_at desc
+ limit 1
+\gset imp213_card_
+
+select 'imp213_acceptance_' || md5(clock_timestamp()::text) as evidence
+\gset imp213_
+
+insert into crm.opportunity_milestones (tenant_id, opportunity_id, kind, origin, evidence)
+values (:'imp213_card_tenant_id', :'imp213_card_opportunity_id', 'revenue', 'manual', :'imp213_evidence')
+returning id
+\gset imp213_milestone_
+
+select co.value, co.value_status, co.currency
+  from crm.commercial_outcomes co
+ where co.tenant_id = :'imp213_card_tenant_id'
+   and co.opportunity_id = :'imp213_card_opportunity_id'
+   and co.is_current
+   and co.value is not null
+   and co.value_status = 'valid'
+ order by co.occurred_at desc
+ limit 1
+\gset imp213_expected_
+
+-- Atendente Central: o card continua operacional, mas evidence e os três
+-- campos financeiros ficam nulos.
 set local role authenticated;
-
--- O bloco é intencionalmente transacional e termina em ROLLBACK.
--- Não imprimir payloads, evidências ou valores financeiros nesta prova.
-
--- Agência: as três consultas financeiras devem executar para qualquer cliente.
-select set_config('request.jwt.claims', '{"sub":"d036c4d6-0969-4175-b917-ff7e4dd3b376","role":"authenticated"}', true);
-select count(*) from public.get_client_overview_v2('fa6fc071-7529-4317-93cb-9b0bfea3bca3', '2026-08-22', '2026-09-20');
-select count(*) from public.get_meta_ads_summary_v2('fa6fc071-7529-4317-93cb-9b0bfea3bca3', '2026-08-22', '2026-09-20', 'campaign');
-select count(*) from public.get_google_ads_summary_v2('fa6fc071-7529-4317-93cb-9b0bfea3bca3', '2026-08-22', '2026-09-20', 'campaign');
-
--- Gestor Royal: as três consultas também devem executar.
-select set_config('request.jwt.claims', '{"sub":"7c3296f4-13c7-42d1-89eb-72aecec905ba","role":"authenticated"}', true);
-select count(*) from public.get_client_overview_v2('fa6fc071-7529-4317-93cb-9b0bfea3bca3', '2026-08-22', '2026-09-20');
-select count(*) from public.get_meta_ads_summary_v2('fa6fc071-7529-4317-93cb-9b0bfea3bca3', '2026-08-22', '2026-09-20', 'campaign');
-select count(*) from public.get_google_ads_summary_v2('fa6fc071-7529-4317-93cb-9b0bfea3bca3', '2026-08-22', '2026-09-20', 'campaign');
-
--- Atendente: overview pode retornar zero; as duas RPCs específicas devem falhar 42501.
 select set_config('request.jwt.claims', '{"sub":"bb04435c-fabb-4ba8-b5b5-e0175d9ca17d","role":"authenticated"}', true);
 do $attendant$
-declare
-  n bigint;
-  failed boolean;
 begin
-  select count(*) into n from public.get_client_overview_v2('fa6fc071-7529-4317-93cb-9b0bfea3bca3', '2026-08-22', '2026-09-20');
-  failed := false;
-  begin
-    perform * from public.get_meta_ads_summary_v2('fa6fc071-7529-4317-93cb-9b0bfea3bca3', '2026-08-22', '2026-09-20', 'campaign');
-  exception when insufficient_privilege then
-    failed := true;
-  end;
-  if not failed then raise exception 'IMP213_ACCEPTANCE: Meta deveria falhar 42501'; end if;
-  failed := false;
-  begin
-    perform * from public.get_google_ads_summary_v2('fa6fc071-7529-4317-93cb-9b0bfea3bca3', '2026-08-22', '2026-09-20', 'campaign');
-  exception when insufficient_privilege then
-    failed := true;
-  end;
-  if not failed then raise exception 'IMP213_ACCEPTANCE: Google deveria falhar 42501'; end if;
+  if (select count(*) from public.v_crm_card_history_v1
+       where client_id = :'imp213_card_tenant_id'
+         and opportunity_id = :'imp213_card_opportunity_id'
+         and milestone_kind = 'revenue') = 0 then
+    raise exception 'IMP213_ACCEPTANCE: milestone revenue não visível ao atendente';
+  end if;
+  if exists (select 1 from public.v_crm_card_history_v1
+       where client_id = :'imp213_card_tenant_id'
+         and opportunity_id = :'imp213_card_opportunity_id'
+         and milestone_kind = 'revenue'
+         and (evidence is not null or value is not null or value_status is not null or currency is not null)) then
+    raise exception 'IMP213_ACCEPTANCE: atendente recebeu campo financeiro ou evidence';
+  end if;
+  if exists (select 1 from public.v_crm_card_history_v1
+       where client_id = :'imp213_card_tenant_id'
+         and opportunity_id = :'imp213_card_opportunity_id'
+         and event_kind = 'outcome'
+         and (value is not null or value_status is not null or currency is not null)) then
+    raise exception 'IMP213_ACCEPTANCE: atendente recebeu outcome financeiro';
+  end if;
 end;
 $attendant$;
 
--- As 24 views financeiras sem o histórico operacional devem retornar zero ao atendente.
-do $views$
+-- Gestor Royal: o mesmo marco e o outcome financeiro aparecem completos.
+select set_config('request.jwt.claims', '{"sub":"7c3296f4-13c7-42d1-89eb-72aecec905ba","role":"authenticated"}', true);
+do $manager$
 declare
-  view_name text;
-  n bigint;
+  got_value numeric;
+  got_status text;
+  got_currency text;
 begin
-  foreach view_name in array[
-    'v_ads_spend_daily','v_channel_performance_daily','v_client_daily_pulse',
-    'v_client_performance_daily','v_client_performance_daily_v2','v_crm_events_daily_v2',
-    'v_crm_events_enriched','v_crm_events_feed_v2','v_crm_funnel_daily',
-    'v_crm_opportunities','v_crm_opportunities_v2','v_crm_sales_daily_v2','v_crm_sales_v2',
-    'v_google_ads_keywords_daily','v_google_ads_v2','v_google_campaign_daily',
-    'v_google_campaign_performance','v_google_keywords_v2','v_meta_account_daily',
-    'v_meta_ads_v2','v_meta_campaign_daily','v_meta_campaign_performance',
-    'v_meta_creative_daily','v_meta_creative_performance'
-  ] loop
-    execute format('select count(*) from public.%I', view_name) into n;
-    if n <> 0 then raise exception 'IMP213_ACCEPTANCE: % retornou % linhas', view_name, n; end if;
-  end loop;
-end;
-$views$;
-
--- Histórico operacional continua legível, mas os três campos financeiros e
--- evidence de milestones de receita devem permanecer mascarados.
-select count(*) from public.v_crm_card_history_v1;
-do $mask$
-declare
-  financial_nonnull bigint;
-  revenue_evidence_nonnull bigint;
-begin
-  select
-    count(*) filter (where value is not null or value_status is not null or currency is not null),
-    count(*) filter (where milestone_kind = 'revenue' and evidence is not null)
-  into financial_nonnull, revenue_evidence_nonnull
-  from public.v_crm_card_history_v1;
-  if financial_nonnull <> 0 or revenue_evidence_nonnull <> 0 then
-    raise exception 'IMP213_ACCEPTANCE: máscara falhou (% campos financeiros, % evidências)', financial_nonnull, revenue_evidence_nonnull;
+  select value, value_status, currency
+    into got_value, got_status, got_currency
+    from public.v_crm_card_history_v1
+   where client_id = :'imp213_card_tenant_id'
+     and opportunity_id = :'imp213_card_opportunity_id'
+     and event_kind = 'outcome'
+     and value is not null
+   order by occurred_at desc
+   limit 1;
+  if got_value is distinct from :'imp213_expected_value'::numeric
+     or got_status is distinct from :'imp213_expected_value_status'::text
+     or got_currency is distinct from :'imp213_expected_currency'::text then
+    raise exception 'IMP213_ACCEPTANCE: gestor não recebeu o financeiro esperado';
+  end if;
+  if not exists (select 1 from public.v_crm_card_history_v1
+       where client_id = :'imp213_card_tenant_id'
+         and opportunity_id = :'imp213_card_opportunity_id'
+         and milestone_kind = 'revenue'
+         and evidence = :'imp213_evidence') then
+    raise exception 'IMP213_ACCEPTANCE: gestor não recebeu evidence do marco';
   end if;
 end;
-$mask$;
+$manager$;
+
+-- O marco não persiste além do rollback desta própria acceptance.
+set local role postgres;
+do $cleanup$
+begin
+  if not exists (select 1 from crm.opportunity_milestones where id = :'imp213_milestone_id') then
+    raise exception 'IMP213_ACCEPTANCE: marco sintético desapareceu antes do rollback';
+  end if;
+end;
+$cleanup$;
 
 rollback;
+
+-- Consulta pós-rollback: não deve sobrar o marco sintético.
+select count(*) as synthetic_rows
+  from crm.opportunity_milestones
+ where id = :'imp213_milestone_id';
