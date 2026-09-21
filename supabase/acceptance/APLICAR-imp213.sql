@@ -16,16 +16,11 @@ stable
 security definer
 set search_path = ''
 as $fn$
-  select ids as client_id
-    from private.my_client_ids() as ids
-   where exists (
-        select 1
-          from public.client_users cu
-         where cu.user_id = auth.uid()
-           and cu.client_id = ids.client_id
-           and cu.is_active
-           and cu.role = any (array['agency', 'owner', 'admin', 'manager', 'viewer'])
-      )
+  select cu.client_id
+    from public.client_users cu
+   where cu.user_id = (select auth.uid())
+     and cu.is_active
+     and cu.role = any (array['agency','owner','admin','manager','viewer'])
   union
   select cb.id
     from public.clients_base cb

@@ -1,72 +1,11 @@
--- IMP-213 regenerated over the post-IMP-229 production state.
--- Definitions below were read from production on 2026-09-21; no old dump is used.
+-- IMP-213 pre-definition backup; definitions and catalog ACL/options only; no data.
+-- Source: production Clients_Base, read-only catalog extraction.
 
-begin;
-set local lock_timeout = '5s';
-
-alter table public.client_users drop constraint if exists client_users_role_check;
-alter table public.client_users add constraint client_users_role_check check (role = any (array['owner','admin','manager','viewer','agency','attendant']));
-
-create or replace function private.financial_client_ids()
-returns table (client_id uuid)
-language sql
-stable
-security definer
-set search_path = ''
-as $fn$
-  select cu.client_id
-    from public.client_users cu
-   where cu.user_id = (select auth.uid())
-     and cu.is_active
-     and cu.role = any (array['agency','owner','admin','manager','viewer'])
-  union
-  select cb.id
-    from public.clients_base cb
-   where auth.role() = 'service_role';
-$fn$;
-revoke all on function private.financial_client_ids() from public, anon;
-grant execute on function private.financial_client_ids() to authenticated, service_role;
-
-create or replace function private.can_view_client_financials(p_client_id uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = ''
-as $fn$
-  select auth.role() = 'service_role'
-      or exists (select 1 from private.financial_client_ids() ids where ids.client_id = p_client_id);
-$fn$;
-revoke all on function private.can_view_client_financials(uuid) from public, anon;
-grant execute on function private.can_view_client_financials(uuid) to authenticated, service_role;
-
-alter policy meta_ads_daily_select_by_client_user
-  on public.meta_ads_daily
-  using (client_id in (select client_id from private.financial_client_ids()));
-alter policy google_ads_daily_select_by_client_user
-  on public.google_ads_daily
-  using (client_id in (select client_id from private.financial_client_ids()));
-alter policy google_ads_campaign_daily_select_by_client
-  on public.google_ads_campaign_daily
-  using (client_id in (select client_id from private.financial_client_ids()));
-alter policy google_ads_keywords_daily_select_by_client_user
-  on public.google_ads_keywords_daily
-  using (client_id in (select client_id from private.financial_client_ids()));
-revoke all on table public.external_meta_ads_raw from public, anon, authenticated;
-revoke all on table public.external_ga4_raw from public, anon, authenticated;
-revoke all on table public.external_hotmart_raw from public, anon, authenticated;
-revoke all on table public.stevo_events_raw from public, anon, authenticated;
-grant select on table public.external_meta_ads_raw, public.external_ga4_raw, public.external_hotmart_raw, public.stevo_events_raw to service_role;
-
-revoke all on table public.events_normalized from public, anon, authenticated;
-grant select (id, raw_event_id, client_id, ghl_location_id, ghl_location_name, client_name, event_code, event_name, funnel_step, event_datetime, source_system, source_event_type, source_workflow_id, source_workflow_name, contact_id, first_name, last_name, full_name, phone, email, contact_type, tags, lead_origem, lead_entrada, lead_agencias, conversion_source, entry_point_conversion_source, entry_point_conversion_app, source_type, source_id, source_url, source_ads, ad_title, ctwa_clid, ctwa_payload, fbp, fbc, fbclid, gclid, gbraid, wbraid, ga_client_id, ga_session_id, procedure_interest, procedure_closed, loss_reason_category, loss_reason_detail, normalization_status, normalization_error, created_at, updated_at, received_at, location_id, location_name, opportunity_id, pipeline_id, pipeline_name, pipeline_stage, status, phone_raw, utm_source, utm_medium, utm_campaign, utm_content, utm_term, procedimento_ganho, motivo_perda_categoria, motivo_perda_detalhe, google_campaign_id, google_adgroup_id, google_ad_id, google_keyword, google_network, google_device, produto_servico, categoria_produto_servico) on table public.events_normalized to authenticated;
-grant select on table public.events_normalized to service_role;
-
-create or replace view public.v_ads_spend_daily
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT md.client_id,
+-- VIEW public.v_ads_spend_daily
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_ads_spend_daily as
+ SELECT md.client_id,
     cb.client_name,
     cb.client_slug,
     md.date,
@@ -104,17 +43,13 @@ UNION ALL
     COALESCE(gd.clicks, 0)::bigint AS clicks,
     gd.updated_at
    FROM google_ads_daily gd
-     JOIN clients_base cb ON cb.id = gd.client_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_ads_spend_daily from public, anon, authenticated;
-grant select on table public.v_ads_spend_daily to authenticated, service_role;
+     JOIN clients_base cb ON cb.id = gd.client_id;;
 
-create or replace view public.v_channel_performance_daily
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH ads_channel AS (
+-- VIEW public.v_channel_performance_daily
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_channel_performance_daily as
+ WITH ads_channel AS (
          SELECT v_ads_spend_daily.client_id,
             v_ads_spend_daily.client_name,
             v_ads_spend_daily.client_slug,
@@ -180,17 +115,13 @@ WITH ads_channel AS (
             ELSE NULL::numeric
         END AS roas_real
    FROM ads_channel a
-     FULL JOIN crm_channel c ON c.client_id = a.client_id AND c.event_date = a.event_date AND c.channel_source = a.channel_source
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_channel_performance_daily from public, anon, authenticated;
-grant select on table public.v_channel_performance_daily to authenticated, service_role;
+     FULL JOIN crm_channel c ON c.client_id = a.client_id AND c.event_date = a.event_date AND c.channel_source = a.channel_source;;
 
-create or replace view public.v_client_daily_pulse
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT client_id,
+-- VIEW public.v_client_daily_pulse
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_client_daily_pulse as
+ SELECT client_id,
     event_date AS date,
     count(*) FILTER (WHERE event_code = 'lead'::text) AS leads,
     count(*) FILTER (WHERE event_code = 'primeira_conversa'::text) AS conversas,
@@ -199,17 +130,13 @@ SELECT client_id,
     count(*) FILTER (WHERE event_code = 'perdido'::text OR status = 'lost'::text) AS perdidos,
     COALESCE(sum(valor_ganho) FILTER (WHERE event_code = 'ganho'::text OR status = 'won'::text), 0::numeric) AS receita
    FROM v_crm_events_enriched
-  GROUP BY client_id, event_date
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_client_daily_pulse from public, anon, authenticated;
-grant select on table public.v_client_daily_pulse to authenticated, service_role;
+  GROUP BY client_id, event_date;;
 
-create or replace view public.v_client_performance_daily
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH ads AS (
+-- VIEW public.v_client_performance_daily
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_client_performance_daily as
+ WITH ads AS (
          SELECT v_ads_spend_daily.client_id,
             v_ads_spend_daily.client_name,
             v_ads_spend_daily.client_slug,
@@ -267,17 +194,13 @@ WITH ads AS (
             ELSE NULL::numeric
         END AS ticket_medio
    FROM ads a
-     FULL JOIN crm c ON c.client_id = a.client_id AND c.event_date = a.event_date
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_client_performance_daily from public, anon, authenticated;
-grant select on table public.v_client_performance_daily to authenticated, service_role;
+     FULL JOIN crm c ON c.client_id = a.client_id AND c.event_date = a.event_date;;
 
-create or replace view public.v_client_performance_daily_v2
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH platform_daily AS (
+-- VIEW public.v_client_performance_daily_v2
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_client_performance_daily_v2 as
+ WITH platform_daily AS (
          SELECT m_1.client_id,
             m_1.date,
             'meta_ads'::text AS platform,
@@ -455,17 +378,13 @@ WITH platform_daily AS (
      LEFT JOIN lead_cohort lc ON lc.client_id = ds.client_id AND lc.date = ds.date
      LEFT JOIN acquisition_outcomes ao ON ao.client_id = ds.client_id AND ao.date = ds.date
      LEFT JOIN cohort_sales cs ON cs.client_id = ds.client_id AND cs.date = ds.date
-     LEFT JOIN sales_activity sa ON sa.client_id = ds.client_id AND sa.date = ds.date
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_client_performance_daily_v2 from public, anon, authenticated;
-grant select on table public.v_client_performance_daily_v2 to authenticated, service_role;
+     LEFT JOIN sales_activity sa ON sa.client_id = ds.client_id AND sa.date = ds.date;;
 
-create or replace view public.v_crm_events_daily_v2
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT client_id,
+-- VIEW public.v_crm_events_daily_v2
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_crm_events_daily_v2 as
+ SELECT client_id,
     client_name,
     client_slug,
     event_date AS date,
@@ -484,17 +403,13 @@ SELECT client_id,
     max(event_datetime) AS last_event_at,
     max(received_at) AS latest_received_at
    FROM v_crm_events_feed_v2 e
-  GROUP BY client_id, client_name, client_slug, event_date, event_code, event_name, source_event_type
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_crm_events_daily_v2 from public, anon, authenticated;
-grant select on table public.v_crm_events_daily_v2 to authenticated, service_role;
+  GROUP BY client_id, client_name, client_slug, event_date, event_code, event_name, source_event_type;;
 
-create or replace view public.v_crm_events_enriched
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT en.id,
+-- VIEW public.v_crm_events_enriched
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_crm_events_enriched as
+ SELECT en.id,
     en.raw_event_id,
     en.client_id,
     cb.client_name,
@@ -526,17 +441,13 @@ SELECT en.id,
     en.status,
     en.pipeline_stage
    FROM events_normalized en
-     JOIN clients_base cb ON cb.id = en.client_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_crm_events_enriched from public, anon, authenticated;
-grant select on table public.v_crm_events_enriched to authenticated, service_role;
+     JOIN clients_base cb ON cb.id = en.client_id;;
 
-create or replace view public.v_crm_events_feed_v2
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT en.id AS event_id,
+-- VIEW public.v_crm_events_feed_v2
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_crm_events_feed_v2 as
+ SELECT en.id AS event_id,
     en.raw_event_id,
     en.client_id,
     cb.client_name,
@@ -600,17 +511,13 @@ SELECT en.id AS event_id,
     en.event_code = 'ganho'::text AND en.valor_ganho IS NOT NULL AS gain_has_informed_value,
     en.event_code = 'ganho'::text AND en.valor_ganho IS NULL AS gain_has_missing_value
    FROM events_normalized en
-     JOIN clients_base cb ON cb.id = en.client_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_crm_events_feed_v2 from public, anon, authenticated;
-grant select on table public.v_crm_events_feed_v2 to authenticated, service_role;
+     JOIN clients_base cb ON cb.id = en.client_id;;
 
-create or replace view public.v_crm_funnel_daily
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH leads AS (
+-- VIEW public.v_crm_funnel_daily
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_crm_funnel_daily as
+ WITH leads AS (
          SELECT v_crm_events_enriched.contact_id,
             v_crm_events_enriched.client_id,
             v_crm_events_enriched.client_name,
@@ -644,17 +551,13 @@ WITH leads AS (
            FROM v_crm_events_enriched e
           WHERE e.contact_id = l.contact_id AND (e.event_code = 'ganho'::text OR e.status = 'won'::text)
           ORDER BY e.contact_id, e.received_at DESC) dedup ON true
-  GROUP BY l.client_id, l.client_name, l.client_slug, l.event_date, l.channel_source
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_crm_funnel_daily from public, anon, authenticated;
-grant select on table public.v_crm_funnel_daily to authenticated, service_role;
+  GROUP BY l.client_id, l.client_name, l.client_slug, l.event_date, l.channel_source;;
 
-create or replace view public.v_crm_opportunities
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH base AS (
+-- VIEW public.v_crm_opportunities
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_crm_opportunities as
+ WITH base AS (
          SELECT en.id,
             en.client_id,
             cb.client_name AS cb_client_name,
@@ -802,17 +705,13 @@ WITH base AS (
    FROM agg a
      LEFT JOIN latest_event le ON le.client_id = a.client_id AND le.opportunity_id = a.opportunity_id
      LEFT JOIN first_source fs ON fs.client_id = a.client_id AND fs.opportunity_id = a.opportunity_id
-     LEFT JOIN revenue_event re ON re.client_id = a.client_id AND re.opportunity_id = a.opportunity_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_crm_opportunities from public, anon, authenticated;
-grant select on table public.v_crm_opportunities to authenticated, service_role;
+     LEFT JOIN revenue_event re ON re.client_id = a.client_id AND re.opportunity_id = a.opportunity_id;;
 
-create or replace view public.v_crm_opportunities_v2
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH opportunity_rollup AS (
+-- VIEW public.v_crm_opportunities_v2
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_crm_opportunities_v2 as
+ WITH opportunity_rollup AS (
          SELECT en.client_id,
             TRIM(BOTH FROM en.opportunity_id) AS opportunity_id,
             count(*) AS total_events,
@@ -963,17 +862,13 @@ WITH opportunity_rollup AS (
     j.wbraid
    FROM prepared p
      JOIN clients_base cb ON cb.id = p.client_id
-     LEFT JOIN v_client_leads_by_stage_v2 j ON j.client_id = p.client_id AND j.contact_id = p.contact_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_crm_opportunities_v2 from public, anon, authenticated;
-grant select on table public.v_crm_opportunities_v2 to authenticated, service_role;
+     LEFT JOIN v_client_leads_by_stage_v2 j ON j.client_id = p.client_id AND j.contact_id = p.contact_id;;
 
-create or replace view public.v_crm_sales_daily_v2
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT client_id,
+-- VIEW public.v_crm_sales_daily_v2
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_crm_sales_daily_v2 as
+ SELECT client_id,
     client_name,
     client_slug,
     ganho_date AS date,
@@ -988,17 +883,13 @@ SELECT client_id,
     bool_and(has_valid_value) AS revenue_is_complete,
     avg(valor_ganho) FILTER (WHERE has_valid_value) AS average_ticket_with_valid_value
    FROM v_crm_sales_v2 s
-  GROUP BY client_id, client_name, client_slug, ganho_date
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_crm_sales_daily_v2 from public, anon, authenticated;
-grant select on table public.v_crm_sales_daily_v2 to authenticated, service_role;
+  GROUP BY client_id, client_name, client_slug, ganho_date;;
 
-create or replace view public.v_crm_sales_v2
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT o.client_id,
+-- VIEW public.v_crm_sales_v2
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_crm_sales_v2 as
+ SELECT o.client_id,
     o.client_name,
     o.client_slug,
     o.opportunity_id,
@@ -1047,17 +938,13 @@ SELECT o.client_id,
     o.source_event_types
    FROM v_crm_opportunities_v2 o
      JOIN clients_base cb ON cb.id = o.client_id
-  WHERE o.is_won
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_crm_sales_v2 from public, anon, authenticated;
-grant select on table public.v_crm_sales_v2 to authenticated, service_role;
+  WHERE o.is_won;;
 
-create or replace view public.v_google_ads_keywords_daily
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT g.client_id,
+-- VIEW public.v_google_ads_keywords_daily
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_google_ads_keywords_daily as
+ SELECT g.client_id,
     cb.client_name,
     cb.client_slug,
     g.google_ads_customer_id,
@@ -1091,17 +978,13 @@ SELECT g.client_id,
     g.synced_at,
     g.updated_at
    FROM google_ads_keywords_daily g
-     JOIN clients_base cb ON cb.id = g.client_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_google_ads_keywords_daily from public, anon, authenticated;
-grant select on table public.v_google_ads_keywords_daily to authenticated, service_role;
+     JOIN clients_base cb ON cb.id = g.client_id;;
 
-create or replace view public.v_google_ads_v2
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT g.id,
+-- VIEW public.v_google_ads_v2
+-- relacl = {postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_google_ads_v2 as
+ SELECT g.id,
     g.client_id,
     cb.client_name,
     cb.client_slug,
@@ -1132,17 +1015,13 @@ SELECT g.id,
     g.created_at,
     g.updated_at
    FROM google_ads_campaign_daily g
-     JOIN clients_base cb ON cb.id = g.client_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_google_ads_v2 from public, anon, authenticated;
-grant select on table public.v_google_ads_v2 to authenticated, service_role;
+     JOIN clients_base cb ON cb.id = g.client_id;;
 
-create or replace view public.v_google_campaign_daily
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH midia AS (
+-- VIEW public.v_google_campaign_daily
+-- relacl = {postgres=arwdDxtm/postgres,authenticated=rm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_google_campaign_daily as
+ WITH midia AS (
          SELECT g.client_id,
             g.date,
             g.customer_id,
@@ -1186,17 +1065,13 @@ WITH midia AS (
     COALESCE(c.crm_leads, 0::bigint) AS crm_leads,
     COALESCE(c.crm_agendados, 0::bigint) AS crm_agendados
    FROM midia mid
-     LEFT JOIN crm c ON c.client_id = mid.client_id AND c.google_campaign_id = mid.campaign_id AND c.date = mid.date
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_google_campaign_daily from public, anon, authenticated;
-grant select on table public.v_google_campaign_daily to authenticated, service_role;
+     LEFT JOIN crm c ON c.client_id = mid.client_id AND c.google_campaign_id = mid.campaign_id AND c.date = mid.date;;
 
-create or replace view public.v_google_campaign_performance
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH ads AS (
+-- VIEW public.v_google_campaign_performance
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_google_campaign_performance as
+ WITH ads AS (
          SELECT gd.client_id,
             cb.client_name,
             cb.client_slug,
@@ -1263,17 +1138,13 @@ WITH ads AS (
         END AS roas_real
    FROM ads a
      LEFT JOIN crm_leads l ON l.client_id = a.client_id AND l.google_campaign_id = a.campaign_id
-     LEFT JOIN crm_opps o ON o.client_id = a.client_id AND o.google_campaign_id = a.campaign_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_google_campaign_performance from public, anon, authenticated;
-grant select on table public.v_google_campaign_performance to authenticated, service_role;
+     LEFT JOIN crm_opps o ON o.client_id = a.client_id AND o.google_campaign_id = a.campaign_id;;
 
-create or replace view public.v_google_keywords_v2
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT gk.id,
+-- VIEW public.v_google_keywords_v2
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_google_keywords_v2 as
+ SELECT gk.id,
     gk.client_id,
     cb.client_name,
     cb.client_slug,
@@ -1300,17 +1171,13 @@ SELECT gk.id,
     gk.created_at,
     gk.updated_at
    FROM google_ads_keywords_daily gk
-     JOIN clients_base cb ON cb.id = gk.client_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_google_keywords_v2 from public, anon, authenticated;
-grant select on table public.v_google_keywords_v2 to authenticated, service_role;
+     JOIN clients_base cb ON cb.id = gk.client_id;;
 
-create or replace view public.v_meta_account_daily
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH midia AS (
+-- VIEW public.v_meta_account_daily
+-- relacl = {postgres=arwdDxtm/postgres,authenticated=rm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_meta_account_daily as
+ WITH midia AS (
          SELECT m.client_id,
             m.date,
             m.account_id,
@@ -1356,17 +1223,13 @@ WITH midia AS (
     COALESCE(c.crm_leads, 0::bigint) AS crm_leads,
     COALESCE(c.crm_agendados, 0::bigint) AS crm_agendados
    FROM midia mid
-     LEFT JOIN crm c ON c.client_id = mid.client_id AND c.account_id = mid.account_id AND c.date = mid.date
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_meta_account_daily from public, anon, authenticated;
-grant select on table public.v_meta_account_daily to authenticated, service_role;
+     LEFT JOIN crm c ON c.client_id = mid.client_id AND c.account_id = mid.account_id AND c.date = mid.date;;
 
-create or replace view public.v_meta_ads_v2
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT md.id,
+-- VIEW public.v_meta_ads_v2
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_meta_ads_v2 as
+ SELECT md.id,
     md.client_id,
     cb.client_name,
     cb.client_slug,
@@ -1409,17 +1272,13 @@ SELECT md.id,
     md.created_at,
     md.updated_at
    FROM meta_ads_daily md
-     JOIN clients_base cb ON cb.id = md.client_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_meta_ads_v2 from public, anon, authenticated;
-grant select on table public.v_meta_ads_v2 to authenticated, service_role;
+     JOIN clients_base cb ON cb.id = md.client_id;;
 
-create or replace view public.v_meta_campaign_daily
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH midia AS (
+-- VIEW public.v_meta_campaign_daily
+-- relacl = {postgres=arwdDxtm/postgres,authenticated=rm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_meta_campaign_daily as
+ WITH midia AS (
          SELECT m.client_id,
             m.date,
             m.account_id,
@@ -1469,17 +1328,13 @@ WITH midia AS (
     COALESCE(c.crm_leads, 0::bigint) AS crm_leads,
     COALESCE(c.crm_agendados, 0::bigint) AS crm_agendados
    FROM midia mid
-     LEFT JOIN crm c ON c.client_id = mid.client_id AND c.campaign_id = mid.campaign_id AND c.date = mid.date
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_meta_campaign_daily from public, anon, authenticated;
-grant select on table public.v_meta_campaign_daily to authenticated, service_role;
+     LEFT JOIN crm c ON c.client_id = mid.client_id AND c.campaign_id = mid.campaign_id AND c.date = mid.date;;
 
-create or replace view public.v_meta_campaign_performance
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH ads AS (
+-- VIEW public.v_meta_campaign_performance
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_meta_campaign_performance as
+ WITH ads AS (
          SELECT v_ads_spend_daily.client_id,
             v_ads_spend_daily.client_name,
             v_ads_spend_daily.client_slug,
@@ -1552,17 +1407,13 @@ WITH ads AS (
         END AS roas_real
    FROM ads a
      LEFT JOIN crm_leads l ON l.client_id = a.client_id AND l.ad_id = a.ad_id
-     LEFT JOIN crm_opps o ON o.client_id = a.client_id AND o.ad_id = a.ad_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_meta_campaign_performance from public, anon, authenticated;
-grant select on table public.v_meta_campaign_performance to authenticated, service_role;
+     LEFT JOIN crm_opps o ON o.client_id = a.client_id AND o.ad_id = a.ad_id;;
 
-create or replace view public.v_meta_creative_daily
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH midia AS (
+-- VIEW public.v_meta_creative_daily
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_meta_creative_daily as
+ WITH midia AS (
          SELECT m.client_id,
             m.date,
             m.account_id,
@@ -1623,17 +1474,13 @@ WITH midia AS (
     COALESCE(c.crm_ganhos, 0::bigint) AS crm_ganhos,
     COALESCE(c.receita, 0::numeric) AS receita
    FROM midia mid
-     LEFT JOIN crm c ON c.client_id = mid.client_id AND c.ad_id = mid.ad_id AND c.date = mid.date
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_meta_creative_daily from public, anon, authenticated;
-grant select on table public.v_meta_creative_daily to authenticated, service_role;
+     LEFT JOIN crm c ON c.client_id = mid.client_id AND c.ad_id = mid.ad_id AND c.date = mid.date;;
 
-create or replace view public.v_meta_creative_performance
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-WITH ads AS (
+-- VIEW public.v_meta_creative_performance
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_meta_creative_performance as
+ WITH ads AS (
          SELECT md.client_id,
             cb.client_name,
             cb.client_slug,
@@ -1726,17 +1573,13 @@ WITH ads AS (
         END AS roas_real
    FROM ads a
      LEFT JOIN crm_leads l ON l.client_id = a.client_id AND l.ad_id = a.ad_id
-     LEFT JOIN crm_opps o ON o.client_id = a.client_id AND o.ad_id = a.ad_id
-  ) as gated
- where gated.client_id in (select client_id from private.financial_client_ids());
-revoke all on table public.v_meta_creative_performance from public, anon, authenticated;
-grant select on table public.v_meta_creative_performance to authenticated, service_role;
+     LEFT JOIN crm_opps o ON o.client_id = a.client_id AND o.ad_id = a.ad_id;;
 
-create or replace view public.v_crm_card_history_v1
-with (security_barrier = true, security_invoker = false) as
-select gated.*
-  from (
-SELECT h.tenant_id AS client_id,
+-- VIEW public.v_crm_card_history_v1
+-- relacl = {postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- reloptions = ['security_invoker=true']
+create or replace view public.v_crm_card_history_v1 as
+ SELECT h.tenant_id AS client_id,
     h.opportunity_id,
     h.occurred_at,
     'stage'::text AS event_kind,
@@ -1779,7 +1622,7 @@ UNION ALL
     NULL::numeric AS value,
     NULL::text AS value_status,
     NULL::text AS currency,
-    CASE WHEN m.kind = 'revenue' AND NOT (m.tenant_id IN (SELECT client_id FROM private.financial_client_ids())) THEN NULL::text ELSE m.evidence END AS evidence,
+    m.evidence,
     NULL::text AS reason,
     m.actor_profile_id,
     ap.display_name AS actor_name
@@ -1800,21 +1643,19 @@ UNION ALL
     co.outcome,
     lr.code AS loss_reason_code,
     lr.label AS loss_reason_label,
-    CASE WHEN co.tenant_id IN (SELECT client_id FROM private.financial_client_ids()) THEN co.value ELSE NULL::numeric END AS value,
-    CASE WHEN co.tenant_id IN (SELECT client_id FROM private.financial_client_ids()) THEN co.value_status ELSE NULL::text END AS value_status,
-    CASE WHEN co.tenant_id IN (SELECT client_id FROM private.financial_client_ids()) THEN co.currency ELSE NULL::text END AS currency,
+    co.value,
+    co.value_status,
+    co.currency,
     co.evidence,
     NULL::text AS reason,
     co.actor_profile_id,
     ap.display_name AS actor_name
    FROM crm.commercial_outcomes co
      LEFT JOIN crm.canonical_loss_reasons lr ON lr.id = co.loss_reason_id
-     LEFT JOIN crm.profiles ap ON ap.id = co.actor_profile_id
-  ) as gated
- where gated.client_id in (select client_id from private.my_client_ids());
-revoke all on table public.v_crm_card_history_v1 from public, anon, authenticated;
-grant select on table public.v_crm_card_history_v1 to authenticated, service_role;
+     LEFT JOIN crm.profiles ap ON ap.id = co.actor_profile_id;;
 
+-- FUNCTION public.get_client_overview_v2(p_client_id uuid, p_start_date date, p_end_date date)
+-- proacl = {postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}
 CREATE OR REPLACE FUNCTION public.get_client_overview_v2(p_client_id uuid, p_start_date date, p_end_date date)
  RETURNS TABLE(client_id uuid, client_name text, client_slug text, period_start date, period_end date, media_days bigint, investment numeric, investment_is_complete boolean, leads bigint, paid_attributed_leads bigint, meta_ads_leads bigint, google_ads_leads bigint, unattributed_leads bigint, attribution_conflicts bigint, primeiras_conversas bigint, agendados bigint, crm_ganhos bigint, acquisition_buying_contacts bigint, acquisition_sales bigint, cohort_total_sales bigint, cohort_sales_without_own_lead bigint, acquisition_revenue numeric, total_cohort_revenue numeric, acquisition_revenue_is_complete boolean, cohort_revenue_is_complete boolean, closed_sales bigint, closed_buying_contacts bigint, closed_revenue numeric, closed_revenue_is_complete boolean, cpl_paid numeric, cac_acquisition numeric, roas_acquisition numeric, roas_total_cohort numeric)
  LANGUAGE sql
@@ -2083,6 +1924,8 @@ where cb.id = p_client_id;
 
 $function$;
 
+-- FUNCTION public.get_meta_ads_summary_v2(p_client_id uuid, p_start_date date, p_end_date date, p_dimension text)
+-- proacl = {postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}
 CREATE OR REPLACE FUNCTION public.get_meta_ads_summary_v2(p_client_id uuid, p_start_date date, p_end_date date, p_dimension text DEFAULT 'account'::text)
  RETURNS TABLE(dimension text, group_id text, group_name text, account_id text, account_name text, campaign_id text, campaign_name text, adset_id text, adset_name text, ad_id text, ad_name text, creative_id text, creative_name text, thumbnail_url text, image_url text, creative_url text, headline text, primary_text text, spend numeric, impressions bigint, clicks bigint, ctr numeric, cpc numeric, crm_leads bigint, crm_primeiras_conversas bigint, crm_agendados bigint, crm_ganhos bigint, acquisition_buying_contacts bigint, acquisition_sales bigint, acquisition_revenue numeric, acquisition_sales_with_valid_value bigint, acquisition_sales_without_valid_value bigint, acquisition_revenue_is_complete boolean, cohort_buying_contacts bigint, cohort_total_sales bigint, cohort_sales_without_own_lead bigint, total_cohort_revenue numeric, cohort_sales_with_valid_value bigint, cohort_sales_without_valid_value bigint, cohort_revenue_is_complete boolean, cpl numeric, cost_per_agendado numeric, cost_per_gain numeric, cac_acquisition numeric, roas_acquisition numeric, roas_total_cohort numeric)
  LANGUAGE plpgsql
@@ -2750,6 +2593,8 @@ begin
 end;
 $function$;
 
+-- FUNCTION public.get_google_ads_summary_v2(p_client_id uuid, p_start_date date, p_end_date date, p_dimension text)
+-- proacl = {postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}
 CREATE OR REPLACE FUNCTION public.get_google_ads_summary_v2(p_client_id uuid, p_start_date date, p_end_date date, p_dimension text DEFAULT 'account'::text)
  RETURNS TABLE(dimension text, group_id text, group_name text, account_id text, account_name text, campaign_id text, campaign_name text, ad_group_id text, ad_group_name text, ad_id text, ad_name text, ad_type text, spend numeric, impressions bigint, clicks bigint, ctr numeric, cpc numeric, crm_leads bigint, crm_primeiras_conversas bigint, crm_agendados bigint, crm_ganhos bigint, acquisition_buying_contacts bigint, acquisition_sales bigint, acquisition_revenue numeric, acquisition_sales_with_valid_value bigint, acquisition_sales_without_valid_value bigint, acquisition_revenue_is_complete boolean, cohort_buying_contacts bigint, cohort_total_sales bigint, cohort_sales_without_own_lead bigint, total_cohort_revenue numeric, cohort_sales_with_valid_value bigint, cohort_sales_without_valid_value bigint, cohort_revenue_is_complete boolean, cpl numeric, cost_per_agendado numeric, cost_per_gain numeric, cac_acquisition numeric, roas_acquisition numeric, roas_total_cohort numeric)
  LANGUAGE plpgsql
@@ -3424,30 +3269,3 @@ begin
 
 end;
 $function$;
-
-revoke all on function public.get_client_overview_v2(uuid, date, date) from public, anon;
-grant execute on function public.get_client_overview_v2(uuid, date, date) to authenticated, service_role;
-revoke all on function public.get_meta_ads_summary_v2(uuid, date, date, text) from public, anon;
-grant execute on function public.get_meta_ads_summary_v2(uuid, date, date, text) to authenticated, service_role;
-revoke all on function public.get_google_ads_summary_v2(uuid, date, date, text) from public, anon;
-grant execute on function public.get_google_ads_summary_v2(uuid, date, date, text) to authenticated, service_role;
-
-do $gate$
-declare
-  missing integer;
-begin
-  if not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname='my_client_ids' and pg_get_function_identity_arguments(p.oid)='') then raise exception 'IMP213_GATE: my_client_ids ausente'; end if;
-  if not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname='financial_client_ids' and pg_get_function_identity_arguments(p.oid)='') then raise exception 'IMP213_GATE: financial_client_ids ausente'; end if;
-  if not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname='can_view_client_financials' and pg_get_function_identity_arguments(p.oid)='p_client_id uuid') then raise exception 'IMP213_GATE: can_view_client_financials ausente'; end if;
-  if has_function_privilege('anon','private.financial_client_ids()','execute') then raise exception 'IMP213_GATE: anon executa financial_client_ids'; end if;
-  if has_function_privilege('anon','private.can_view_client_financials(uuid)','execute') then raise exception 'IMP213_GATE: anon executa can_view_client_financials'; end if;
-  if not has_function_privilege('authenticated','private.financial_client_ids()','execute') then raise exception 'IMP213_GATE: authenticated sem financial_client_ids'; end if;
-  if not has_function_privilege('authenticated','private.can_view_client_financials(uuid)','execute') then raise exception 'IMP213_GATE: authenticated sem can_view_client_financials'; end if;
-  select count(*) into missing from (values ('v_ads_spend_daily'), ('v_channel_performance_daily'), ('v_client_daily_pulse'), ('v_client_performance_daily'), ('v_client_performance_daily_v2'), ('v_crm_events_daily_v2'), ('v_crm_events_enriched'), ('v_crm_events_feed_v2'), ('v_crm_funnel_daily'), ('v_crm_opportunities'), ('v_crm_opportunities_v2'), ('v_crm_sales_daily_v2'), ('v_crm_sales_v2'), ('v_google_ads_keywords_daily'), ('v_google_ads_v2'), ('v_google_campaign_daily'), ('v_google_campaign_performance'), ('v_google_keywords_v2'), ('v_meta_account_daily'), ('v_meta_ads_v2'), ('v_meta_campaign_daily'), ('v_meta_campaign_performance'), ('v_meta_creative_daily'), ('v_meta_creative_performance'), ('v_crm_card_history_v1')) required(view_name)
-   where not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname=required.view_name and c.reloptions @> ARRAY['security_barrier=true','security_invoker=false']);
-  if missing <> 0 then raise exception 'IMP213_GATE: % views sem security options', missing; end if;
-  if exists (select 1 from pg_policies where schemaname='public' and tablename in ('meta_ads_daily','google_ads_daily','google_ads_campaign_daily','google_ads_keywords_daily') and cmd='SELECT' and qual not ilike '%financial_client_ids%') then raise exception 'IMP213_GATE: media policy sem financial_client_ids'; end if;
-  if exists (select 1 from pg_policies where schemaname='public' and tablename='events_normalized' and cmd='SELECT' and qual not ilike '%my_client_ids%') then raise exception 'IMP213_GATE: events policy deixou my_client_ids'; end if;
-end;
-$gate$;
-commit;
