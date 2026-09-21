@@ -24,6 +24,8 @@ linhas no total (Royal 948, QuickClean 398, Central 90). O hotfix
 private.my_client_ids() as m` e compara com `m`.
 
 
+## Motivo
+
 A função original `private.user_can_access_client(uuid)` era correta, mas era
 avaliada linha a linha nas tabelas de mídia e eventos. Uma subconsulta direta em
 `client_users` também não é equivalente: ela executa sob o papel da API e pode
