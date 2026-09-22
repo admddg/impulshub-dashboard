@@ -251,6 +251,13 @@ begin
   if v_stage is null then raise exception 'FORM_INTAKE_UNAVAILABLE'; end if;
   insert into crm.opportunities (tenant_id, contact_id, pipeline_version_id, current_stage_id, title, conversion_source, source_url, gclid, gbraid, wbraid, utm_source, utm_medium, utm_campaign, utm_content, utm_term)
   values (v_tenant, v_contact, v_pipeline, v_stage, v_name, v_source, nullif(pg_catalog.btrim(coalesce(p_page_url, '')), ''), nullif(pg_catalog.btrim(coalesce(p_gclid, '')), ''), nullif(pg_catalog.btrim(coalesce(p_gbraid, '')), ''), nullif(pg_catalog.btrim(coalesce(p_wbraid, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_source, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_medium, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_campaign, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_content, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_term, '')), '')) returning id into v_opp;
+  -- IMP-230 (revisao do Head): grava o historico inicial, como todo resto do
+  -- sistema faz ao abrir um card (a validacao so exige isso em UPDATE, mas
+  -- sem esta linha a aba de historico do card nasceria vazia).
+  insert into crm.opportunity_stage_history
+    (tenant_id, opportunity_id, from_stage_id, to_stage_id, transition_type, origin, actor_profile_id, reason, occurred_at)
+  values
+    (v_tenant, v_opp, null, v_stage, 'automatic', 'sistema', null, 'formulario do site (IMP-230)', pg_catalog.now());
   return pg_catalog.jsonb_build_object('contact_id', v_contact, 'opportunity_id', v_opp, 'deduped', false);
 end
 $fn$;
