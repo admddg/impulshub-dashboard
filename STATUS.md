@@ -35,8 +35,22 @@ O dump cria `crm.event_map`, mas a fixture não inseria suas seis linhas canôni
 
 ## Próxima execução autorizada
 
-1. Corrigir a fixture/contrato do aceite 213 para fornecer um outcome financeiro elegível, sob nova autorização.
-2. Investigar a emissão indevida do IMP-216 para clientes GHL antes de repetir a etapa.
-3. Executar 230 somente após resolver os dois bloqueios e sob nova autorização; manter 231 fora deste staging.
+1. Corrigir o contrato do aceite 213: ele consulta um card Royal com o atendente exclusivo da Central; escolher explicitamente uma fixture no mesmo tenant ou um papel atendente Royal, sem relaxar a RLS.
+2. Manter 231 fora desta reconstrução: exige `cron.job`, deliberadamente ausente.
 
-Não declarar staging reconstruído até essas medições e aceites passarem.
+Não declarar staging reconstruído até o aceite 213 ser corrigido e passar.
+
+## Retomada autorizada — execução atual
+
+- `supabase/staging/seed-synthetic.sql` corrigido para `crm_feeds_dashboard=false` em Royal, Central e QuickClean, `true` apenas no ImpulsHub; o `ON CONFLICT` agora atualiza essas flags.
+- O seed remove apenas resíduos sintéticos `impuls_crm` dos três tenants GHL, preservando os eventos `ghl`; também cria um outcome Royal `won` sintético de `1250.00 BRL` para o aceite financeiro.
+- Aplicação no staging: `COMMIT ok (28 statements) em nfratueiutxnypbxfnmi`; contagens medidas: 4 clientes, 4 usuários, 10 `client_users`, 10 `tenant_memberships`, 8 cards, 4 contatos, 8 atividades, 6 eventos normalizados.
+- IMP-213 acceptance: bloqueado no primeiro papel; o atendente Central consulta o card Royal e a RLS retorna zero, então a asserção de visibilidade falha corretamente.
+- IMP-213 isolation: `ROLLBACK ok (9 statements)`.
+- IMP-214 acceptance: `ROLLBACK ok (14 statements)`.
+- IMP-216 acceptance + isolation: `ROLLBACK ok (23 statements)`; nenhum delta em `events_normalized`/`conversion_outbox` nos tenants GHL e isolamento aprovado.
+- IMP-230 acceptance + isolation: `ROLLBACK ok (8 statements)`.
+- `python scripts/db-prova.py --dry-run`: `dry_run=passed`, `writes=0`, `ddl=0`, `commit=0`.
+- `select to_regclass('cron.job') is null`: continua esperado como `true` e o IMP-231 permanece excluído.
+
+Estado: reconstrução funcional para seed, IMP-213 isolation, IMP-214, IMP-216 e IMP-230; aceite IMP-213 pendente por inconsistência do próprio contrato de fixture. O staging ainda não deve ser declarado reconstruído.

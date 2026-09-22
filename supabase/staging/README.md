@@ -59,7 +59,7 @@ O seed usa em `auth.users` somente: `id, instance_id, aud, role, email, encrypte
 - quatro usuários, identidades e perfis sintéticos;
 - `client_users` e `crm.tenant_memberships` conforme os papéis acima;
 - catálogo global de pipeline copiado por SELECT da produção: versão 1 e seis etapas, com Lead/Atendimento/Agendado/Compareceu não terminais e Ganho/Perdido terminais;
-- oito cards CRM abertos, dois por cliente, nas etapas consecutivas Lead e Atendimento;
+- oito cards CRM, dois por cliente, nas etapas consecutivas Lead e Atendimento;
 - quatro contatos e oito atividades sintéticas;
 - seis pares `events_raw`/`events_normalized` sintéticos, com `source_system='ghl'` e códigos `lead`, `primeira_conversa`, `agendado`, `compareceu`, `ganho` e `perdido`.
 

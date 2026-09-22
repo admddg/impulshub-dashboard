@@ -46,13 +46,43 @@ on conflict (id) do update set display_name = excluded.display_name;
 insert into public.clients_base
   (id, ghl_location_id, ghl_location_name, client_name, status, timezone,
    enable_meta_tracking, enable_google_tracking, enable_ga4_tracking,
-   meta_ad_accounts, google_ads_accounts, client_slug, crm_emits_conversions)
-values
-  ('fa6fc071-7529-4317-93cb-9b0bfea3bca3', 'synthetic-ghl-royal', 'Synthetic Royal Location', 'Royal', 'active', 'America/Sao_Paulo', false, false, false, '[]', '[]', 'royal', false),
-  ('19c9d8c6-1a6d-499b-95fd-cc23d1cd555b', 'synthetic-ghl-central', 'Synthetic Central Location', 'Central', 'active', 'America/Sao_Paulo', false, false, false, '[]', '[]', 'central', false),
-  ('3bc0e6a4-6438-420d-b603-ec91bf296f4e', 'synthetic-ghl-quickclean', 'Synthetic QuickClean Location', 'QuickClean', 'active', 'America/Sao_Paulo', false, false, false, '[]', '[]', 'quickclean', false),
-  ('3ec294db-a64a-4420-9b4a-0d917f65d399', 'synthetic-ghl-impulshub', 'Synthetic ImpulsHub Location', 'ImpulsHub', 'active', 'America/Sao_Paulo', false, false, false, '[]', '[]', 'impulshub', false)
-on conflict (id) do update set ghl_location_id = excluded.ghl_location_id, client_name = excluded.client_name, client_slug = excluded.client_slug, updated_at = excluded.updated_at;
+    meta_ad_accounts, google_ads_accounts, client_slug, crm_emits_conversions,
+    crm_feeds_dashboard)
+   values
+   ('fa6fc071-7529-4317-93cb-9b0bfea3bca3', 'synthetic-ghl-royal', 'Synthetic Royal Location', 'Royal', 'active', 'America/Sao_Paulo', false, false, false, '[]', '[]', 'royal', false, false),
+   ('19c9d8c6-1a6d-499b-95fd-cc23d1cd555b', 'synthetic-ghl-central', 'Synthetic Central Location', 'Central', 'active', 'America/Sao_Paulo', false, false, false, '[]', '[]', 'central', false, false),
+   ('3bc0e6a4-6438-420d-b603-ec91bf296f4e', 'synthetic-ghl-quickclean', 'Synthetic QuickClean Location', 'QuickClean', 'active', 'America/Sao_Paulo', false, false, false, '[]', '[]', 'quickclean', false, false),
+   ('3ec294db-a64a-4420-9b4a-0d917f65d399', 'synthetic-ghl-impulshub', 'Synthetic ImpulsHub Location', 'ImpulsHub', 'active', 'America/Sao_Paulo', false, false, false, '[]', '[]', 'impulshub', false, true)
+on conflict (id) do update set
+  ghl_location_id = excluded.ghl_location_id,
+  client_name = excluded.client_name,
+  client_slug = excluded.client_slug,
+  crm_emits_conversions = excluded.crm_emits_conversions,
+  crm_feeds_dashboard = excluded.crm_feeds_dashboard,
+  updated_at = excluded.updated_at;
+
+-- Remove apenas eventos sintéticos CRM que uma execução anterior do seed
+-- criou nos tenants que continuam no GHL; não toca nos eventos GHL.
+delete from public.conversion_outbox co
+ where co.normalized_event_id in (
+   select en.id from public.events_normalized en
+    where en.source_system = 'impuls_crm'
+      and en.client_id in (
+        'fa6fc071-7529-4317-93cb-9b0bfea3bca3'::uuid,
+        '19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid,
+        '3bc0e6a4-6438-420d-b603-ec91bf296f4e'::uuid));
+delete from public.events_normalized
+ where source_system = 'impuls_crm'
+   and client_id in (
+     'fa6fc071-7529-4317-93cb-9b0bfea3bca3'::uuid,
+     '19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid,
+     '3bc0e6a4-6438-420d-b603-ec91bf296f4e'::uuid);
+delete from public.events_raw
+ where source_system = 'impuls_crm'
+   and payload->>'tenant_id' in (
+     'fa6fc071-7529-4317-93cb-9b0bfea3bca3',
+     '19c9d8c6-1a6d-499b-95fd-cc23d1cd555b',
+     '3bc0e6a4-6438-420d-b603-ec91bf296f4e');
 
 insert into crm.tenants (id, slug, name, status, created_at) values
   ('fa6fc071-7529-4317-93cb-9b0bfea3bca3', 'royal', 'Royal', 'active', timestamp '2026-01-01'),
@@ -158,6 +188,30 @@ from crm.opportunities o
 cross join lateral (select (right(o.id::text, 8))::bigint as n) x
 where o.id::text like '30000000-0000-4000-8000-%'
 on conflict (id) do nothing;
+
+-- Um card Royal terminaliza a fixture para o aceite financeiro IMP-213;
+-- o segundo continua aberto para o aceite de emissão IMP-216.
+update crm.opportunities
+   set current_stage_id = '00000000-0000-0000-0000-000000000205',
+       stage_version = stage_version + 1,
+       status = 'won',
+       closed_at = timestamp '2026-01-01',
+       updated_at = timestamp '2026-01-01'
+ where id = '30000000-0000-4000-8000-000000000001'
+   and tenant_id = 'fa6fc071-7529-4317-93cb-9b0bfea3bca3'
+   and status = 'open'
+   and current_stage_id = '00000000-0000-0000-0000-000000000201';
+insert into crm.opportunity_stage_history
+  (id, tenant_id, opportunity_id, from_stage_id, to_stage_id, transition_type, origin, actor_profile_id, reason, occurred_at, created_at)
+values
+  ('40000000-0000-4000-8000-000000000009', 'fa6fc071-7529-4317-93cb-9b0bfea3bca3', '30000000-0000-4000-8000-000000000001', '00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000205', 'automatic', 'sistema', null, 'synthetic won outcome', timestamp '2026-01-01', timestamp '2026-01-01')
+on conflict (id) do nothing;
+insert into crm.commercial_outcomes
+  (id, tenant_id, opportunity_id, outcome, origin, evidence, value, value_status, currency, is_current, occurred_at, created_at)
+values
+  ('80000000-0000-4000-8000-000000000001', 'fa6fc071-7529-4317-93cb-9b0bfea3bca3', '30000000-0000-4000-8000-000000000001', 'won', 'sistema', 'synthetic won outcome', 1250.00, 'valid', 'BRL', true, timestamp '2026-01-01', timestamp '2026-01-01')
+on conflict (id) do nothing;
+set constraints all immediate;
 
 insert into crm.activities
   (id, tenant_id, contact_id, opportunity_id, actor_profile_id, kind, direction, body, provider_message_id, created_at)
