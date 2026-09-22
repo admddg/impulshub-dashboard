@@ -107,6 +107,12 @@ criativo diretamente nela (`thumbnail_url`, `image_url`, `creative_url`,
 separada de criativos Meta em uso** (ver `meta_ads_creatives_deprecated`
 abaixo).
 
+**Retenção de payload bruto (IMP-231/ADR-0025):** os nove campos jsonb brutos
+são zerados após 14 dias por job `pg_cron` diário às 03:15 UTC; métricas e
+campos estruturados permanecem. A migration é idempotente e o rollback remove
+apenas o job — não restaura jsonb apagado. `VACUUM FULL` é manual, nunca
+agendado automaticamente.
+
 **`google_ads_daily`** — performance diária Google em nível de anúncio:
 `impressions, clicks, cost, conversions, all_conversions` (sem quebra por
 tipo de conversão — pendência conhecida).
