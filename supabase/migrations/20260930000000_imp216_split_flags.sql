@@ -80,6 +80,10 @@ begin
     from public.clients_base cb
    where cb.id = new.tenant_id;
 
+  -- clients_base.ghl_location_id e NOT NULL UNIQUE: cliente sem GHL usa '' ou
+  -- placeholder. Vazio vira NULL no evento (client_id e a chave canonica).
+  v_ghl_location_id := nullif(pg_catalog.btrim(coalesce(v_ghl_location_id, '')), '');
+
   if not v_dashboard and not v_emits then
     return new;
   end if;
@@ -96,7 +100,7 @@ begin
   end if;
 
   -- Google (gclid/gbraid/wbraid/UTM) pertence a IMP-230; nao inventar colunas.
-  if v_emits and pg_catalog.length(pg_catalog.btrim(coalesce(v_ghl_location_id, ''))) = 0 then
+  if v_emits and v_ghl_location_id is null then
     raise exception 'IMP-216 ghl_location_id is required only for conversion emission, tenant %', new.tenant_id;
   end if;
 

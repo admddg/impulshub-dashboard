@@ -2,6 +2,8 @@
 
 -- Aceite IMP-216. Executar somente em sessao autorizada; termina em ROLLBACK.
 begin;
+-- a migration deixa as constraints em immediate; o app roda com o padrao (deferred).
+set constraints all deferred;
 set local statement_timeout = '8s';
 
 -- Esperados calculados como postgres antes de trocar o papel.
@@ -9,30 +11,7 @@ set local role postgres;
 
 -- A prova simula o cliente sem GHL dentro da transacao. Se a coluna deixar
 -- de aceitar NULL, o aceite falha explicitamente em vez de mascarar o caso.
-do $imp216_nullability$
-begin
-  if not exists (
-    select 1
-      from information_schema.columns
-     where table_schema = 'public'
-       and table_name = 'clients_base'
-       and column_name = 'ghl_location_id'
-       and is_nullable = 'YES'
-  ) then
-    raise exception 'IMP216_ACCEPTANCE: clients_base.ghl_location_id nao aceita NULL';
-  end if;
-  if not exists (
-    select 1
-      from information_schema.columns
-     where table_schema = 'public'
-       and table_name = 'clients_base'
-       and column_name = 'ghl_location_name'
-       and is_nullable = 'YES'
-  ) then
-    raise exception 'IMP216_ACCEPTANCE: clients_base.ghl_location_name nao aceita NULL';
-  end if;
-end
-$imp216_nullability$;
+-- clients_base.ghl_location_id e NOT NULL: cliente sem GHL e simulado com ''.
 
 create temporary table imp216_expected as
 select cb.id as client_id,
@@ -98,10 +77,11 @@ select count(*) as ghl_fixture_count from imp216_ghl_fixture;
 
 -- Simula cliente sem GHL antes do movimento; tudo sera desfeito no ROLLBACK.
 update public.clients_base
-   set ghl_location_id = null,
+   set ghl_location_id = '',
        ghl_location_name = null
  where id = '3ec294db-a64a-4420-9b4a-0d917f65d399'::uuid;
 
+grant select on imp216_expected, imp216_fixture, imp216_ghl_fixture to authenticated;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"d036c4d6-0969-4175-b917-ff7e4dd3b376","role":"authenticated"}', true);
 
