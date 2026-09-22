@@ -47,7 +47,7 @@ Precisa do Caio/Coordenador ANTES de implementar: <lista>
 
 Regra: onde ha decisao em aberto (especialmente a pergunta (a)/(b)/(c) acima e qualquer coisa sobre
 o workflow n8n que voce nao conseguir confirmar por falta de acesso direto), escreva PENDENTE e liste
-em "Precisa do Caio/Coordenador". Nao toque em producao, nao faca DDL, nao abra branch de banco.
+em Precisa do Caio/Coordenador. Nao toque em producao, nao faca DDL, nao abra branch de banco.
 IMPORTANTE: o objetivo real deste turno e o Head e o Caio avaliarem o TAMANHO da entrega antes de
 decidir comecar a implementar — capriche na estimativa de escopo e nos riscos, mais do que em
 detalhe de SQL.
