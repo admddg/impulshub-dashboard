@@ -59,7 +59,7 @@ O seed usa em `auth.users` somente: `id, instance_id, aud, role, email, encrypte
 - quatro usuários, identidades e perfis sintéticos;
 - `client_users` e `crm.tenant_memberships` conforme os papéis acima;
 - catálogo global de pipeline copiado por SELECT da produção: versão 1 e seis etapas, com Lead/Atendimento/Agendado/Compareceu não terminais e Ganho/Perdido terminais;
-- oito cards CRM abertos, dois por cliente, nas etapas consecutivas Lead e Atendimento;
+- oito cards CRM, dois por cliente, nas etapas consecutivas Lead e Atendimento;
 - quatro contatos e oito atividades sintéticas;
 - seis pares `events_raw`/`events_normalized` sintéticos, com `source_system='ghl'` e códigos `lead`, `primeira_conversa`, `agendado`, `compareceu`, `ganho` e `perdido`.
 
@@ -99,4 +99,45 @@ O arquivo já foi corrigido para `origin='sistema'`, mas não foi feita uma terc
 ## Provar uma migration no staging (runner do Head)
 
 `python scripts/staging-run.py rollback <arquivos.sql...>` roda os arquivos em UMA transação no staging (`nfratueiutxnypbxfnmi`, aborta se o alvo for produção) e termina em ROLLBACK; `commit` só para o seed. Padrão de prova: migration + aceite + (reset role) + isolamento + rollback da migration, tudo em `rollback`. A migration deixa `set constraints all immediate`; o aceite deve começar com `set constraints all deferred`. Aceites 213, 214 e 216 rodam aqui sem adaptação (UUIDs iguais aos de produção, dados sintéticos).
-Achados do seed: `opportunity_stage_history.transition_type` aceita `automatic|manual|undo|correction`; `origin` aceita `frase_configurada|manual|integracao|sistema`; a tabela é append-only.
+Os achados do seed: `opportunity_stage_history.transition_type` aceita `automatic|manual|undo|correction`; `origin` aceita `frase_configurada|manual|integracao|sistema`; a tabela é append-only.
+
+## Reconstrução executada em 2026-09-22
+
+- Fase 2: dump schema-only renovado da produção e restore no ref `nfratueiutxnypbxfnmi`. O primeiro restore sobre o schema existente falhou com `42P16` por tabela já existente; não houve commit parcial. O segundo caminho, após reset transacional dos schemas `crm`, `private` e `public`, passou.
+- Estrutura medida após restore: 35 tabelas, 46 views/materialized views, 43 funções e 39 policies em `public`, `crm` e `private`; `to_regclass('cron.job') is null` retornou `true`; ledger staging contém 2 linhas.
+- Fase 3: preflight de `auth.users`/`auth.identities` confirmou `auth.users.confirmed_at` e `auth.identities.email` como `GENERATED ALWAYS`. O seed foi executado uma vez e sofreu rollback com `P0001 IMP-216 cannot map CRM stage ...0201 to an event code`, porque `crm.event_map` estava vazio no dump e não era populado pelo seed.
+- Correção versionada: o seed agora popula os seis mapeamentos canônicos de `crm.event_map`; ela foi executada com sucesso na retomada de 2026-09-22 e as contagens foram lidas de volta.
+- Fase 4: bloqueada após falhas do harness ao interpretar diretivas `psql` dos aceites; os aceites permanecem pendentes e não há declaração de reconstrução completa.
+- `scripts/db-prova.py --dry-run` passou como preflight somente-leitura do contrato (`writes=0`, `ddl=0`, `commit=0`), mas permanece fixado no projeto de produção e suas contagens não são evidência do staging.
+
+## Retomada autorizada em 2026-09-22
+
+- Seed corrigido executado no único alvo autorizado `nfratueiutxnypbxfnmi`: `COMMIT ok (21 statements)`.
+- Contagens medidas após o commit: 4 clientes, 4 usuários, 10 vínculos em `client_users`, 10 vínculos em `crm.tenant_memberships`, 8 cards, 4 contatos, 8 atividades e 6 eventos normalizados.
+- `select to_regclass('cron.job') is null` retornou `true`.
+- O aceite `imp213-acceptance.sql` não chegou a validar o banco: `staging-run.py` não suporta `\\gset`; o CLI/API também não suporta `\\set`; a tentativa alternativa de compatibilidade falhou novamente ao processar a diretiva. Todos os caminhos fizeram rollback ou falharam antes de commit.
+- Conforme o contrato operacional, a etapa de aceites foi interrompida após duas falhas técnicas. `imp213-isolation.sql`, `imp214-acceptance.sql`, `imp216-acceptance.sql`, `imp216-isolation.sql`, `imp230-acceptance.sql`, `imp230-isolation.sql` e `imp231-acceptance.sql` permanecem não executados nesta sessão.
+- O aceite 231 exige `cron.job`, deliberadamente ausente no staging reconstruído; sua execução só pode ocorrer em um contexto próprio de prova da migration que cria o job, não nesta reconstrução.
+- Estado: seed verificado; aceites pendentes por bloqueio do harness, sem declarar a reconstrução completa.
+
+## Retomada do harness e aceites em 2026-09-22
+
+`scripts/staging-run.py` passou a interpretar apenas o subconjunto usado pelos
+aceites: `\\set NOME valor`, `\\gset PREFIXO`, substituição literal `:NOME` e
+substituição SQL-quoted `:'NOME'`. A validação local encontrou 14 statements e 5
+diretivas em `imp213-acceptance.sql`, e 16 statements e 4 diretivas em
+`imp229-acceptance.sql`. O harness mantém uma transação por execução e todos os
+aceites abaixo terminaram em rollback quando houve falha.
+
+- `imp213-acceptance.sql`: bloqueado no primeiro `\\gset`; a fixture não possui
+  outcome financeiro elegível (`value` não nulo e `value_status='valid'`).
+- `imp213-isolation.sql`: `ROLLBACK ok (9 statements)`.
+- `imp214-acceptance.sql`: `ROLLBACK ok (14 statements)`.
+- `imp216-acceptance.sql` + `imp216-isolation.sql`: falhou no assertion de
+  isolamento; Royal apresentou delta 2 em `events_normalized` onde o esperado
+  era delta 0. A execução foi interrompida conforme o limite de duas falhas da
+  etapa de aceites; 230 e 231 não foram executados.
+- Confirmação final por leitura: `select to_regclass('cron.job') is null` → `true`.
+
+O staging ainda não deve ser declarado reconstruído. O aceite 231 permanece
+intencionalmente excluído porque exige `cron.job`, ausente por contrato.

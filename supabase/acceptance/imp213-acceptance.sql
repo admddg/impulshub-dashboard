@@ -38,10 +38,10 @@ select co.value, co.value_status, co.currency
  limit 1
 \gset imp213_expected_
 
--- Atendente Central: o card continua operacional, mas evidence e os três
+-- Atendente Royal: o card continua operacional, mas evidence e os três
 -- campos financeiros ficam nulos.
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"bb04435c-fabb-4ba8-b5b5-e0175d9ca17d","role":"authenticated"}', true);
+select set_config('request.jwt.claims', '{"sub":"aa04435c-fabb-4ba8-b5b5-e0175d9ca17d","role":"authenticated"}', true);
 do $attendant$
 begin
   if (select count(*) from public.v_crm_card_history_v1

@@ -88,6 +88,7 @@ declare
   v_ghl_location_id  text;
   v_location_name    text;
   v_client_name      text;
+  v_dashboard       boolean;
   v_emits            boolean;
   v_contact_name     text;
   v_contact_phone    text;
@@ -102,39 +103,36 @@ begin
     return new;
   end if;
 
-  select cb.ghl_location_id, cb.ghl_location_name, cb.client_name, cb.crm_emits_conversions
-    into v_ghl_location_id, v_location_name, v_client_name, v_emits
+  select cb.ghl_location_id, cb.ghl_location_name, cb.client_name,
+         coalesce(cb.crm_feeds_dashboard, true), coalesce(cb.crm_emits_conversions, false)
+    into v_ghl_location_id, v_location_name, v_client_name, v_dashboard, v_emits
     from public.clients_base cb
    where cb.id = new.tenant_id;
 
-  -- Cliente ainda emite conversao pelo GHL: a ponte nao faz nada.
-  -- Guarda antes da dedupe de proposito, para nao pagar a consulta.
-  if not coalesce(v_emits, false) then
+  -- clients_base.ghl_location_id e NOT NULL UNIQUE: cliente sem GHL usa '' ou
+  -- placeholder. Vazio vira NULL no evento (client_id e a chave canonica).
+  v_ghl_location_id := nullif(pg_catalog.btrim(coalesce(v_ghl_location_id, '')), '');
+
+  if not v_dashboard and not v_emits then
     return new;
   end if;
 
   select s.code into v_stage_code
     from crm.global_pipeline_stages s where s.id = new.current_stage_id;
-
-  v_event_code := case v_stage_code
-    when 'lead'        then 'lead'
-    when 'atendimento' then 'primeira_conversa'
-    when 'agendado'    then 'agendado'
-    when 'compareceu'  then 'compareceu'
-    when 'ganho'       then 'ganho'
-    when 'perdido'     then 'perdido'
-  end;
+  select m.event_code, m.event_name, m.funnel_step
+    into v_event_code, v_event_name, v_funnel_step
+    from crm.event_map m
+   where m.stage_code = v_stage_code and m.is_active;
 
   if v_event_code is null then
-    raise exception 'IMP-205 cannot map CRM stage % to an event code', new.current_stage_id;
+    raise exception 'IMP-216 cannot map CRM stage % to an event code', new.current_stage_id;
   end if;
 
-  if pg_catalog.length(pg_catalog.btrim(coalesce(v_ghl_location_id, ''))) = 0 then
-    raise exception 'IMP-205 ghl_location_id is required for tenant %', new.tenant_id;
+  -- IMP-230: origem Google e UTMs seguem do card para o dashboard.
+  if v_emits and v_ghl_location_id is null then
+    raise exception 'IMP-216 ghl_location_id is required only for conversion emission, tenant %', new.tenant_id;
   end if;
 
-  -- Reentrada na mesma etapa e no-op serializado: a oportunidade ja esta
-  -- bloqueada pelo proprio INSERT/UPDATE.
   if exists (
     select 1 from public.events_normalized en
      where en.client_id = new.tenant_id
@@ -143,18 +141,6 @@ begin
        and en.event_code = v_event_code
   ) then
     return new;
-  end if;
-
-  -- Espelha a grafia e o funnel_step mais recentes do GHL. A ponte nao cria
-  -- convencao nova para dados historicos.
-  select en.event_name, en.funnel_step into v_event_name, v_funnel_step
-    from public.events_normalized en
-   where en.source_system = 'ghl' and en.event_code = v_event_code
-   order by en.event_datetime desc, en.created_at desc, en.id desc
-   limit 1;
-
-  if not found then
-    raise exception 'IMP-205 GHL event template is missing for event_code %', v_event_code;
   end if;
 
   select c.full_name, c.phone_normalized, c.email
@@ -177,14 +163,21 @@ begin
     source_system, event_type, location_id, location_name,
     contact_id, phone, email, payload, processing_status, processed_at
   ) values (
-    'impuls_crm', 'opportunity_stage_changed', v_ghl_location_id, v_location_name,
+    'impuls_crm', 'opportunity_stage_changed',
+    case when v_dashboard then v_ghl_location_id else v_ghl_location_id end,
+    case when v_dashboard then v_location_name else v_location_name end,
     new.contact_id::text, v_contact_phone, v_contact_email,
     pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
       'tenant_id', new.tenant_id, 'opportunity_id', new.id,
       'contact_id', new.contact_id, 'pipeline_version_id', new.pipeline_version_id,
       'stage_id', new.current_stage_id, 'stage_code', v_stage_code,
       'event_code', v_event_code, 'stage_version', new.stage_version,
-      'occurred_at', v_event_datetime
+      'occurred_at', v_event_datetime,
+      'meta', pg_catalog.jsonb_build_object(
+        'ctwa_clid', new.ctwa_clid, 'conversion_source', new.conversion_source,
+        'meta_ad_id', new.meta_ad_id, 'gclid', new.gclid, 'gbraid', new.gbraid,
+        'wbraid', new.wbraid, 'utm_source', new.utm_source, 'utm_medium', new.utm_medium,
+        'utm_campaign', new.utm_campaign, 'utm_content', new.utm_content, 'utm_term', new.utm_term)
     )),
     'normalized', pg_catalog.now()
   ) returning id into v_raw_event_id;
@@ -194,7 +187,7 @@ begin
     event_code, event_name, funnel_step, event_datetime, source_system,
     source_event_type, contact_id, full_name, phone, email,
     conversion_source, entry_point_conversion_source, source_type, source_id,
-    source_url, source_ads, ad_title, ctwa_clid, opportunity_id, pipeline_id,
+    source_url, source_ads, ad_title, ctwa_clid, gclid, gbraid, wbraid, utm_source, utm_medium, utm_campaign, utm_content, utm_term, opportunity_id, pipeline_id,
     pipeline_stage, status, received_at, location_id, location_name, payload
   ) values (
     v_raw_event_id, new.tenant_id, v_ghl_location_id, v_location_name, v_client_name,
@@ -203,23 +196,31 @@ begin
     new.conversion_source, new.entry_point_conversion_source,
     case when new.meta_ad_id is not null then 'ad' else null end,
     new.meta_ad_id, new.source_url, new.meta_ad_id is not null, new.ad_title,
-    new.ctwa_clid, new.id::text, new.pipeline_version_id::text, v_stage_code,
+    new.ctwa_clid, new.gclid, new.gbraid, new.wbraid, new.utm_source, new.utm_medium, new.utm_campaign, new.utm_content, new.utm_term, new.id::text, new.pipeline_version_id::text, v_stage_code,
     new.status, pg_catalog.now(), v_ghl_location_id, v_location_name,
     pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
       'tenant_id', new.tenant_id, 'opportunity_id', new.id,
       'contact_id', new.contact_id, 'stage_code', v_stage_code,
-      'stage_version', new.stage_version
+      'stage_version', new.stage_version,
+      'meta', pg_catalog.jsonb_build_object(
+        'ctwa_clid', new.ctwa_clid, 'conversion_source', new.conversion_source,
+        'meta_ad_id', new.meta_ad_id, 'gclid', new.gclid, 'gbraid', new.gbraid,
+        'wbraid', new.wbraid, 'utm_source', new.utm_source, 'utm_medium', new.utm_medium,
+        'utm_campaign', new.utm_campaign, 'utm_content', new.utm_content, 'utm_term', new.utm_term)
     ))
   ) returning id into v_normalized_id;
 
-  v_route := case
-    when new.ctwa_clid is not null or new.conversion_source in ('FB_Ads','FB_Post')
-    then 'whatsapp_bm' else 'standard' end;
+  if not v_emits then
+    return new;
+  end if;
 
+  v_route := case when new.ctwa_clid is not null
+       or new.conversion_source in ('FB_Ads', 'FB_Post')
+    then 'whatsapp_bm' else 'standard' end;
   v_meta_event_name := case v_event_code
-    when 'lead'     then case when v_route = 'whatsapp_bm' then 'LeadSubmitted' else 'Lead' end
+    when 'lead' then case when v_route = 'whatsapp_bm' then 'LeadSubmitted' else 'Lead' end
     when 'agendado' then case when v_route = 'whatsapp_bm' then 'QualifiedLead' else 'Schedule' end
-    when 'ganho'    then 'Purchase'
+    when 'ganho' then 'Purchase'
     else v_event_name end;
 
   insert into public.conversion_outbox (
@@ -229,28 +230,23 @@ begin
     v_normalized_id, v_ghl_location_id, new.contact_id::text, v_event_code,
     'meta', v_route, v_meta_event_name,
     pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
-      'event_id', v_normalized_id, 'event_code', v_event_code, 'platform', 'meta',
-      'route', v_route, 'meta_event_name', v_meta_event_name,
-      'platform_event_name', v_meta_event_name,
-      'lead_origem', new.conversion_source, 'lead_entrada', 'WhatsApp',
+      'event_id', v_normalized_id, 'event_code', v_event_code,
+      'platform', 'meta', 'route', v_route, 'meta_event_name', v_meta_event_name,
+      'platform_event_name', v_meta_event_name, 'lead_origem', new.conversion_source,
+      'lead_entrada', 'WhatsApp',
       'user_data_source', pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
         'contact_id', new.contact_id, 'full_name', v_contact_name,
         'phone', v_contact_phone, 'email', v_contact_email)),
       'attribution', pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
         'ctwa_clid', new.ctwa_clid, 'conversion_source', new.conversion_source,
         'entry_point_conversion_source', new.entry_point_conversion_source,
-        'source_id', new.meta_ad_id, 'source_url', new.source_url,
-        'ad_title', new.ad_title)),
+        'source_id', new.meta_ad_id, 'source_url', new.source_url, 'ad_title', new.ad_title)),
       'custom_data', pg_catalog.jsonb_build_object(
-        'opportunity_id', new.id, 'stage_code', v_stage_code,
-        'stage_version', new.stage_version),
+        'opportunity_id', new.id, 'stage_code', v_stage_code, 'stage_version', new.stage_version),
       'routing_checks', pg_catalog.jsonb_build_object(
-        'has_ctwa_clid', new.ctwa_clid is not null,
-        'has_meta_ad_id', new.meta_ad_id is not null)
-    )),
-    'pending'
+        'has_ctwa_clid', new.ctwa_clid is not null, 'has_meta_ad_id', new.meta_ad_id is not null)
+    )), 'pending'
   );
-
   return new;
 end;
 $$;
@@ -259,7 +255,7 @@ $$;
 ALTER FUNCTION "crm"."emit_opportunity_stage_event"() OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "crm"."emit_opportunity_stage_event"() IS 'IMP-205: bridge transacional de movimentos do CRM para events_raw, events_normalized e conversion_outbox. Inerte enquanto clients_base.crm_emits_conversions for false.';
+COMMENT ON FUNCTION "crm"."emit_opportunity_stage_event"() IS 'IMP-216: alimenta events_normalized por crm_feeds_dashboard; envia Meta por crm_emits_conversions. Google fica para IMP-230.';
 
 
 
@@ -1246,6 +1242,14 @@ CREATE TABLE IF NOT EXISTS "crm"."opportunities" (
     "entry_point_conversion_source" "text",
     "crc_owner_profile_id" "uuid",
     "sales_owner_profile_id" "uuid",
+    "gclid" "text",
+    "gbraid" "text",
+    "wbraid" "text",
+    "utm_source" "text",
+    "utm_medium" "text",
+    "utm_campaign" "text",
+    "utm_content" "text",
+    "utm_term" "text",
     CONSTRAINT "opportunities_check" CHECK ((("status" = 'open'::"text") = ("closed_at" IS NULL))),
     CONSTRAINT "opportunities_stage_version_check" CHECK (("stage_version" >= 0)),
     CONSTRAINT "opportunities_status_check" CHECK (("status" = ANY (ARRAY['open'::"text", 'won'::"text", 'lost'::"text"]))),
@@ -1374,7 +1378,9 @@ CREATE TABLE IF NOT EXISTS "public"."clients_base" (
     "media_backfill_error" "jsonb",
     "google_ads_backfill_status" "text" DEFAULT 'pending'::"text",
     "google_ads_backfill_error" "jsonb",
-    "crm_emits_conversions" boolean DEFAULT false NOT NULL
+    "crm_emits_conversions" boolean DEFAULT false NOT NULL,
+    "crm_feeds_dashboard" boolean DEFAULT true NOT NULL,
+    "form_intake_token" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
 );
 
 
@@ -1382,6 +1388,10 @@ ALTER TABLE "public"."clients_base" OWNER TO "postgres";
 
 
 COMMENT ON COLUMN "public"."clients_base"."crm_emits_conversions" IS 'Quando true, movimentos de etapa no schema crm emitem conversao. Mantenha false enquanto o cliente emitir pelo GHL: os dois caminhos juntos duplicam a conversao na Meta.';
+
+
+
+COMMENT ON COLUMN "public"."clients_base"."crm_feeds_dashboard" IS 'Quando true, movimentos do CRM alimentam events_normalized. Deve permanecer false em clientes cujo GHL ja alimenta o dashboard, para evitar duplicacao.';
 
 
 
@@ -4273,6 +4283,56 @@ $$;
 ALTER FUNCTION "public"."get_meta_creative_summary"("p_client_id" "uuid", "p_start" "date", "p_end" "date") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."intake_form_lead"("p_client_slug" "text", "p_form_intake_token" "uuid", "p_full_name" "text", "p_phone" "text" DEFAULT NULL::"text", "p_email" "text" DEFAULT NULL::"text", "p_gclid" "text" DEFAULT NULL::"text", "p_gbraid" "text" DEFAULT NULL::"text", "p_wbraid" "text" DEFAULT NULL::"text", "p_utm_source" "text" DEFAULT NULL::"text", "p_utm_medium" "text" DEFAULT NULL::"text", "p_utm_campaign" "text" DEFAULT NULL::"text", "p_utm_content" "text" DEFAULT NULL::"text", "p_utm_term" "text" DEFAULT NULL::"text", "p_page_url" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_tenant uuid; v_contact uuid; v_opp uuid; v_pipeline uuid; v_stage uuid;
+  v_name text := pg_catalog.btrim(p_full_name);
+  v_phone text := nullif(pg_catalog.btrim(coalesce(p_phone, '')), '');
+  v_email text := nullif(pg_catalog.lower(pg_catalog.btrim(coalesce(p_email, ''))), '');
+  v_source text := case when nullif(pg_catalog.btrim(coalesce(p_gclid, '')), '') is not null then 'google_ads' else 'organic' end;
+begin
+  if v_name is null or pg_catalog.length(v_name) = 0 or (v_phone is null and v_email is null) then
+    raise exception 'FORM_INTAKE_INVALID';
+  end if;
+  select cb.id into v_tenant from public.clients_base cb
+   where pg_catalog.lower(cb.client_slug) = pg_catalog.lower(pg_catalog.btrim(p_client_slug))
+     and cb.form_intake_token = p_form_intake_token
+     and pg_catalog.lower(coalesce(cb.status, '')) <> 'inactive';
+  if v_tenant is null then raise exception 'FORM_INTAKE_INVALID'; end if;
+  select c.id into v_contact from crm.contacts c
+   where c.tenant_id = v_tenant and ((v_phone is not null and c.phone_normalized = v_phone) or (v_email is not null and pg_catalog.lower(c.email) = v_email))
+   order by c.created_at limit 1;
+  if v_contact is null then
+    insert into crm.contacts (tenant_id, full_name, phone_normalized, email) values (v_tenant, v_name, v_phone, v_email) returning id into v_contact;
+  end if;
+  select o.id into v_opp from crm.opportunities o
+   where o.tenant_id = v_tenant and o.contact_id = v_contact and o.created_at >= pg_catalog.now() - interval '24 hours'
+   order by o.created_at desc limit 1;
+  if v_opp is not null then return pg_catalog.jsonb_build_object('contact_id', v_contact, 'opportunity_id', v_opp, 'deduped', true); end if;
+  select pv.id, s.id into v_pipeline, v_stage
+    from crm.global_pipeline_versions pv join crm.global_pipeline_stages s on s.pipeline_version_id = pv.id
+   where pv.status = 'active' and s.code = 'lead';
+  if v_stage is null then raise exception 'FORM_INTAKE_UNAVAILABLE'; end if;
+  insert into crm.opportunities (tenant_id, contact_id, pipeline_version_id, current_stage_id, title, conversion_source, source_url, gclid, gbraid, wbraid, utm_source, utm_medium, utm_campaign, utm_content, utm_term)
+  values (v_tenant, v_contact, v_pipeline, v_stage, v_name, v_source, nullif(pg_catalog.btrim(coalesce(p_page_url, '')), ''), nullif(pg_catalog.btrim(coalesce(p_gclid, '')), ''), nullif(pg_catalog.btrim(coalesce(p_gbraid, '')), ''), nullif(pg_catalog.btrim(coalesce(p_wbraid, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_source, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_medium, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_campaign, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_content, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_term, '')), '')) returning id into v_opp;
+  -- IMP-230 (revisao do Head): grava o historico inicial, como todo resto do
+  -- sistema faz ao abrir um card (a validacao so exige isso em UPDATE, mas
+  -- sem esta linha a aba de historico do card nasceria vazia).
+  insert into crm.opportunity_stage_history
+    (tenant_id, opportunity_id, from_stage_id, to_stage_id, transition_type, origin, actor_profile_id, reason, occurred_at)
+  values
+    (v_tenant, v_opp, null, v_stage, 'automatic', 'sistema', null, 'formulario do site (IMP-230)', pg_catalog.now());
+  return pg_catalog.jsonb_build_object('contact_id', v_contact, 'opportunity_id', v_opp, 'deduped', false);
+end
+$$;
+
+
+ALTER FUNCTION "public"."intake_form_lead"("p_client_slug" "text", "p_form_intake_token" "uuid", "p_full_name" "text", "p_phone" "text", "p_email" "text", "p_gclid" "text", "p_gbraid" "text", "p_wbraid" "text", "p_utm_source" "text", "p_utm_medium" "text", "p_utm_campaign" "text", "p_utm_content" "text", "p_utm_term" "text", "p_page_url" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."normalize_channel_source"("p_lead_origem" "text", "p_lead_entrada" "text", "p_meta_ad_id" "text", "p_google_campaign_id" "text", "p_gclid" "text", "p_gbraid" "text", "p_wbraid" "text") RETURNS "text"
     LANGUAGE "sql" STABLE
     AS $$
@@ -4468,6 +4528,21 @@ CREATE TABLE IF NOT EXISTS "crm"."contact_identities" (
 
 
 ALTER TABLE "crm"."contact_identities" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "crm"."event_map" (
+    "event_code" "text" NOT NULL,
+    "stage_code" "text" NOT NULL,
+    "version" integer NOT NULL,
+    "event_name" "text" NOT NULL,
+    "funnel_step" smallint,
+    "is_active" boolean DEFAULT true NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "event_map_version_check" CHECK (("version" > 0))
+);
+
+
+ALTER TABLE "crm"."event_map" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "crm"."global_pipeline_versions" (
@@ -4691,7 +4766,7 @@ CREATE TABLE IF NOT EXISTS "public"."events_normalized" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "raw_event_id" "uuid" NOT NULL,
     "client_id" "uuid",
-    "ghl_location_id" "text" NOT NULL,
+    "ghl_location_id" "text",
     "ghl_location_name" "text",
     "client_name" "text",
     "event_code" "text" NOT NULL,
@@ -4916,6 +4991,18 @@ CREATE TABLE IF NOT EXISTS "public"."external_meta_ads_raw" (
 
 
 ALTER TABLE "public"."external_meta_ads_raw" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."form_intake_rate_limit" (
+    "window_started" timestamp with time zone NOT NULL,
+    "ip" "inet" NOT NULL,
+    "form_intake_token" "uuid" NOT NULL,
+    "request_count" integer DEFAULT 0 NOT NULL,
+    CONSTRAINT "form_intake_rate_limit_request_count_check" CHECK (("request_count" >= 0))
+);
+
+
+ALTER TABLE "public"."form_intake_rate_limit" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."google_ads_campaign_daily" (
@@ -9453,6 +9540,21 @@ ALTER TABLE ONLY "crm"."contacts"
 
 
 
+ALTER TABLE ONLY "crm"."event_map"
+    ADD CONSTRAINT "event_map_pkey" PRIMARY KEY ("event_code");
+
+
+
+ALTER TABLE ONLY "crm"."event_map"
+    ADD CONSTRAINT "event_map_stage_code_key" UNIQUE ("stage_code");
+
+
+
+ALTER TABLE ONLY "crm"."event_map"
+    ADD CONSTRAINT "event_map_version_event_code_key" UNIQUE ("version", "event_code");
+
+
+
 ALTER TABLE ONLY "crm"."global_pipeline_stages"
     ADD CONSTRAINT "global_pipeline_stages_pipeline_version_id_code_key" UNIQUE ("pipeline_version_id", "code");
 
@@ -9663,6 +9765,11 @@ ALTER TABLE ONLY "public"."external_meta_ads_raw"
 
 
 
+ALTER TABLE ONLY "public"."form_intake_rate_limit"
+    ADD CONSTRAINT "form_intake_rate_limit_pkey" PRIMARY KEY ("window_started", "ip", "form_intake_token");
+
+
+
 ALTER TABLE ONLY "public"."google_ads_campaign_daily"
     ADD CONSTRAINT "google_ads_campaign_daily_pkey" PRIMARY KEY ("id");
 
@@ -9763,6 +9870,10 @@ CREATE INDEX "opportunity_stage_history_timeline_idx" ON "crm"."opportunity_stag
 
 
 CREATE INDEX "clients_base_client_slug_idx" ON "public"."clients_base" USING "btree" ("client_slug");
+
+
+
+CREATE UNIQUE INDEX "clients_base_form_intake_token_uidx" ON "public"."clients_base" USING "btree" ("form_intake_token");
 
 
 
@@ -10444,6 +10555,9 @@ ALTER TABLE "crm"."contact_identities" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "crm"."contacts" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "crm"."event_map" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "crm"."global_pipeline_stages" ENABLE ROW LEVEL SECURITY;
 
 
@@ -10637,6 +10751,9 @@ ALTER TABLE "public"."external_hotmart_raw" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."external_meta_ads_raw" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."form_intake_rate_limit" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."google_ads_campaign_daily" ENABLE ROW LEVEL SECURITY;
@@ -11035,6 +11152,11 @@ GRANT ALL ON FUNCTION "public"."get_meta_creative_summary"("p_client_id" "uuid",
 
 
 
+REVOKE ALL ON FUNCTION "public"."intake_form_lead"("p_client_slug" "text", "p_form_intake_token" "uuid", "p_full_name" "text", "p_phone" "text", "p_email" "text", "p_gclid" "text", "p_gbraid" "text", "p_wbraid" "text", "p_utm_source" "text", "p_utm_medium" "text", "p_utm_campaign" "text", "p_utm_content" "text", "p_utm_term" "text", "p_page_url" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."intake_form_lead"("p_client_slug" "text", "p_form_intake_token" "uuid", "p_full_name" "text", "p_phone" "text", "p_email" "text", "p_gclid" "text", "p_gbraid" "text", "p_wbraid" "text", "p_utm_source" "text", "p_utm_medium" "text", "p_utm_campaign" "text", "p_utm_content" "text", "p_utm_term" "text", "p_page_url" "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."normalize_channel_source"("p_lead_origem" "text", "p_lead_entrada" "text", "p_meta_ad_id" "text", "p_google_campaign_id" "text", "p_gclid" "text", "p_gbraid" "text", "p_wbraid" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."normalize_channel_source"("p_lead_origem" "text", "p_lead_entrada" "text", "p_meta_ad_id" "text", "p_google_campaign_id" "text", "p_gclid" "text", "p_gbraid" "text", "p_wbraid" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."normalize_channel_source"("p_lead_origem" "text", "p_lead_entrada" "text", "p_meta_ad_id" "text", "p_google_campaign_id" "text", "p_gclid" "text", "p_gbraid" "text", "p_wbraid" "text") TO "service_role";
@@ -11059,6 +11181,10 @@ GRANT ALL ON TABLE "crm"."commercial_outcomes" TO "service_role";
 
 GRANT SELECT ON TABLE "crm"."contact_identities" TO "authenticated";
 GRANT ALL ON TABLE "crm"."contact_identities" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "crm"."event_map" TO "service_role";
 
 
 
@@ -11467,6 +11593,10 @@ GRANT ALL ON TABLE "public"."external_hotmart_raw" TO "service_role";
 
 
 GRANT ALL ON TABLE "public"."external_meta_ads_raw" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."form_intake_rate_limit" TO "service_role";
 
 
 

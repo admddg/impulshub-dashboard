@@ -7,3 +7,5 @@ node_modules
 tsconfig.tsbuildinfo
 supabase/.temp/
 __pycache__/
+STATUS.md
+PROMPT-executor.md
