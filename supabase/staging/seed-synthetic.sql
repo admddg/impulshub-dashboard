@@ -12,7 +12,8 @@ values
   ('d036c4d6-0969-4175-b917-ff7e4dd3b376', null, 'authenticated', 'authenticated', 'agency.synthetic@staging.invalid', 'synthetic-not-a-real-hash', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Agency Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01'),
   ('4848733f-a369-4c8c-87cd-e62bbaa7b8f5', null, 'authenticated', 'authenticated', 'igor.synthetic@staging.invalid', 'synthetic-not-a-real-hash', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Igor Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01'),
   ('bb04435c-fabb-4ba8-b5b5-e0175d9ca17d', null, 'authenticated', 'authenticated', 'atendente.central@staging.invalid', 'synthetic-not-a-real-hash', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Atendente Central Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01'),
-  ('7c3296f4-13c7-42d1-89eb-72aecec905ba', null, 'authenticated', 'authenticated', 'gestor.royal@staging.invalid', 'synthetic-not-a-real-hash', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Gestor Royal Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01')
+  ('7c3296f4-13c7-42d1-89eb-72aecec905ba', null, 'authenticated', 'authenticated', 'gestor.royal@staging.invalid', 'synthetic-not-a-real-hash', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Gestor Royal Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01'),
+  ('aa04435c-fabb-4ba8-b5b5-e0175d9ca17d', null, 'authenticated', 'authenticated', 'atendente.royal@staging.invalid', 'synthetic-not-a-real-hash', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Atendente Royal Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01')
 on conflict (id) do update set email = excluded.email, raw_user_meta_data = excluded.raw_user_meta_data, updated_at = excluded.updated_at;
 
 insert into auth.identities
@@ -35,12 +36,18 @@ insert into auth.identities
 values
   ('7c3296f4-13c7-42d1-89eb-72aecec90501', '7c3296f4-13c7-42d1-89eb-72aecec905ba', '7c3296f4-13c7-42d1-89eb-72aecec905ba', jsonb_build_object('sub', '7c3296f4-13c7-42d1-89eb-72aecec905ba', 'email', 'gestor.royal@staging.invalid'), 'email', timestamp '2026-01-01', timestamp '2026-01-01', timestamp '2026-01-01')
 on conflict (id) do nothing;
+insert into auth.identities
+  (id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+values
+  ('aa04435c-fabb-4ba8-b5b5-e0175d9ca001', 'aa04435c-fabb-4ba8-b5b5-e0175d9ca17d', 'aa04435c-fabb-4ba8-b5b5-e0175d9ca17d', jsonb_build_object('sub', 'aa04435c-fabb-4ba8-b5b5-e0175d9ca17d', 'email', 'atendente.royal@staging.invalid'), 'email', timestamp '2026-01-01', timestamp '2026-01-01', timestamp '2026-01-01')
+on conflict (id) do nothing;
 
 insert into crm.profiles (id, display_name, created_at) values
   ('d036c4d6-0969-4175-b917-ff7e4dd3b376', 'Agency Synthetic', timestamp '2026-01-01'),
   ('4848733f-a369-4c8c-87cd-e62bbaa7b8f5', 'Igor Synthetic', timestamp '2026-01-01'),
   ('bb04435c-fabb-4ba8-b5b5-e0175d9ca17d', 'Atendente Central Synthetic', timestamp '2026-01-01'),
-  ('7c3296f4-13c7-42d1-89eb-72aecec905ba', 'Gestor Royal Synthetic', timestamp '2026-01-01')
+  ('7c3296f4-13c7-42d1-89eb-72aecec905ba', 'Gestor Royal Synthetic', timestamp '2026-01-01'),
+  ('aa04435c-fabb-4ba8-b5b5-e0175d9ca17d', 'Atendente Royal Synthetic', timestamp '2026-01-01')
 on conflict (id) do update set display_name = excluded.display_name;
 
 insert into public.clients_base
@@ -105,7 +112,8 @@ from (values
   ('3bc0e6a4-6438-420d-b603-ec91bf296f4e'::uuid, '4848733f-a369-4c8c-87cd-e62bbaa7b8f5'::uuid, 'agency'),
   ('3ec294db-a64a-4420-9b4a-0d917f65d399'::uuid, '4848733f-a369-4c8c-87cd-e62bbaa7b8f5'::uuid, 'agency'),
   ('19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid, 'bb04435c-fabb-4ba8-b5b5-e0175d9ca17d'::uuid, 'attendant'),
-  ('fa6fc071-7529-4317-93cb-9b0bfea3bca3'::uuid, '7c3296f4-13c7-42d1-89eb-72aecec905ba'::uuid, 'viewer')
+  ('fa6fc071-7529-4317-93cb-9b0bfea3bca3'::uuid, '7c3296f4-13c7-42d1-89eb-72aecec905ba'::uuid, 'viewer'),
+  ('fa6fc071-7529-4317-93cb-9b0bfea3bca3'::uuid, 'aa04435c-fabb-4ba8-b5b5-e0175d9ca17d'::uuid, 'attendant')
 ) v(client_id, user_id, role)
 on conflict (client_id, user_id) do update set role = excluded.role, is_active = true, updated_at = excluded.updated_at;
 
@@ -121,7 +129,8 @@ from (values
   ('3bc0e6a4-6438-420d-b603-ec91bf296f4e'::uuid, '4848733f-a369-4c8c-87cd-e62bbaa7b8f5'::uuid, 'admin', false),
   ('3ec294db-a64a-4420-9b4a-0d917f65d399'::uuid, '4848733f-a369-4c8c-87cd-e62bbaa7b8f5'::uuid, 'admin', false),
   ('19c9d8c6-1a6d-499b-95fd-cc23d1cd555b'::uuid, 'bb04435c-fabb-4ba8-b5b5-e0175d9ca17d'::uuid, 'attendant', true),
-  ('fa6fc071-7529-4317-93cb-9b0bfea3bca3'::uuid, '7c3296f4-13c7-42d1-89eb-72aecec905ba'::uuid, 'viewer', false)
+  ('fa6fc071-7529-4317-93cb-9b0bfea3bca3'::uuid, '7c3296f4-13c7-42d1-89eb-72aecec905ba'::uuid, 'viewer', false),
+  ('fa6fc071-7529-4317-93cb-9b0bfea3bca3'::uuid, 'aa04435c-fabb-4ba8-b5b5-e0175d9ca17d'::uuid, 'attendant', true)
 ) v(tenant_id, profile_id, role, is_assignable)
 on conflict (tenant_id, profile_id) do update set role = excluded.role, status = 'active', is_assignable = excluded.is_assignable;
 

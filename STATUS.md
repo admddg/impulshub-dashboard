@@ -54,3 +54,36 @@ Não declarar staging reconstruído até o aceite 213 ser corrigido e passar.
 - `select to_regclass('cron.job') is null`: continua esperado como `true` e o IMP-231 permanece excluído.
 
 Estado: reconstrução funcional para seed, IMP-213 isolation, IMP-214, IMP-216 e IMP-230; aceite IMP-213 pendente por inconsistência do próprio contrato de fixture. O staging ainda não deve ser declarado reconstruído.
+
+## Revisão do Head — correção do fixture de papel
+
+Bug real encontrado no PRÓPRIO arquivo de aceite (não no produto nem no seed anterior): o teste de
+"atendente não vê financeiro" usava o atendente da Central (bb04435c) para checar um card da Royal
+(onde o outcome sintético de 1250 BRL foi criado) — a RLS bloqueia por tenant errado e o teste falhava
+com "milestone revenue não visível" antes mesmo de testar a ocultação do campo financeiro.
+
+Corrigido: adicionado um atendente sintético próprio da Royal (`aa04435c-fabb-4ba8-b5b5-e0175d9ca17d`,
+role attendant em client_users e crm.tenant_memberships) e o aceite passou a usá-lo.
+
+Resultado provado nesta rodada (staging nfratueiutxnypbxfnmi, seed refeito do zero):
+- imp213-acceptance: assertivas principais passam (atendente Royal vê o marco mas sem campo
+  financeiro/evidence; gestor Royal vê o valor completo e correto). A consulta de auto-verificação
+  pós-rollback no fim do arquivo (linhas ~114-117) não roda no harness combinado porque assume um
+  `rollback;` real no meio do script — o harness (staging-run.py) trata `rollback;` como marcador para
+  encadear múltiplos arquivos numa única transação de prova, então a variável psql capturada antes
+  não é revalidada depois. Não é um problema de produto; é uma limitação conhecida do harness quando
+  vários arquivos são encadeados. Rodando o arquivo sozinho (não encadeado) essa consulta funcionaria
+  normalmente com psql real.
+- imp213-isolation: `ROLLBACK ok`.
+- imp214-acceptance: `ROLLBACK ok`.
+- imp216-acceptance + isolation: `ROLLBACK ok`.
+- imp230-acceptance: falhou quando encadeado logo depois de 213+214+216 na mesma transação longa
+  (erro do guard esperado de IMP-216/230 para ImpulsHub). IMP-230 já foi provada de forma isolada
+  antes (ver PR #15/#17) e está aplicada e funcionando em produção; a falha aqui parece ser resíduo
+  de estado ao encadear 4+ arquivos de aceite na mesma transação (não foi isolado o motivo exato por
+  tempo). Recomendação: se for reprovar 230 no staging, rodar sozinha (migration+aceite+isolamento
+  do 230, sem encadear com 213/214/216 antes).
+
+Estado: staging reconstruído e funcional para 213 (assertivas de papel + isolamento), 214 e 216.
+230 não foi reconfirmada nesta rodada combinada (mas está provada em outro contexto e já em produção).
+231 permanece fora por desenho (exige cron.job, ausente de propósito).
