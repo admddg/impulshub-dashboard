@@ -95,3 +95,8 @@ O arquivo já foi corrigido para `origin='sistema'`, mas não foi feita uma terc
 - `seed-synthetic.sql`: fixture sintética corrigida, aguardando nova execução autorizada.
 - `TASK-STAGING.md`: escopo e sequência de etapas.
 - `STATUS.md`: estado e evidências da retomada.
+
+## Provar uma migration no staging (runner do Head)
+
+`python scripts/staging-run.py rollback <arquivos.sql...>` roda os arquivos em UMA transação no staging (`nfratueiutxnypbxfnmi`, aborta se o alvo for produção) e termina em ROLLBACK; `commit` só para o seed. Padrão de prova: migration + aceite + (reset role) + isolamento + rollback da migration, tudo em `rollback`. A migration deixa `set constraints all immediate`; o aceite deve começar com `set constraints all deferred`. Aceites 213, 214 e 216 rodam aqui sem adaptação (UUIDs iguais aos de produção, dados sintéticos).
+Achados do seed: `opportunity_stage_history.transition_type` aceita `automatic|manual|undo|correction`; `origin` aceita `frase_configurada|manual|integracao|sistema`; a tabela é append-only.

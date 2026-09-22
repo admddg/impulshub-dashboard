@@ -9,10 +9,10 @@ insert into auth.users
   (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
    raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 values
-  ('d036c4d6-0969-4175-b917-ff7e4dd3b376', null, 'authenticated', 'authenticated', 'agency.synthetic@staging.invalid', '[REDACTED]', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Agency Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01'),
-  ('4848733f-a369-4c8c-87cd-e62bbaa7b8f5', null, 'authenticated', 'authenticated', 'igor.synthetic@staging.invalid', '[REDACTED]', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Igor Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01'),
-  ('bb04435c-fabb-4ba8-b5b5-e0175d9ca17d', null, 'authenticated', 'authenticated', 'atendente.central@staging.invalid', '[REDACTED]', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Atendente Central Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01'),
-  ('7c3296f4-13c7-42d1-89eb-72aecec905ba', null, 'authenticated', 'authenticated', 'gestor.royal@staging.invalid', '[REDACTED]', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Gestor Royal Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01')
+  ('d036c4d6-0969-4175-b917-ff7e4dd3b376', null, 'authenticated', 'authenticated', 'agency.synthetic@staging.invalid', 'synthetic-not-a-real-hash', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Agency Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01'),
+  ('4848733f-a369-4c8c-87cd-e62bbaa7b8f5', null, 'authenticated', 'authenticated', 'igor.synthetic@staging.invalid', 'synthetic-not-a-real-hash', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Igor Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01'),
+  ('bb04435c-fabb-4ba8-b5b5-e0175d9ca17d', null, 'authenticated', 'authenticated', 'atendente.central@staging.invalid', 'synthetic-not-a-real-hash', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Atendente Central Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01'),
+  ('7c3296f4-13c7-42d1-89eb-72aecec905ba', null, 'authenticated', 'authenticated', 'gestor.royal@staging.invalid', 'synthetic-not-a-real-hash', timestamp '2026-01-01', '{"provider":"email","providers":["email"]}', '{"display_name":"Gestor Royal Synthetic"}', timestamp '2026-01-01', timestamp '2026-01-01')
 on conflict (id) do update set email = excluded.email, raw_user_meta_data = excluded.raw_user_meta_data, updated_at = excluded.updated_at;
 
 insert into auth.identities
@@ -136,7 +136,7 @@ on conflict (id) do nothing;
 insert into crm.opportunity_stage_history
   (id, tenant_id, opportunity_id, from_stage_id, to_stage_id, transition_type, origin, actor_profile_id, reason, occurred_at, created_at)
 select ('40000000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid, o.tenant_id, o.id, null,
-       o.current_stage_id, 'initial', 'sistema', null, 'synthetic seed', timestamp '2026-01-01', timestamp '2026-01-01'
+       o.current_stage_id, 'automatic', 'sistema', null, 'synthetic seed', timestamp '2026-01-01', timestamp '2026-01-01'
 from crm.opportunities o
 cross join lateral (select (right(o.id::text, 8))::bigint as n) x
 where o.id::text like '30000000-0000-4000-8000-%'
@@ -179,7 +179,7 @@ select json_build_object(
   'client_users', (select count(*) from public.client_users where client_id in ('fa6fc071-7529-4317-93cb-9b0bfea3bca3','19c9d8c6-1a6d-499b-95fd-cc23d1cd555b','3bc0e6a4-6438-420d-b603-ec91bf296f4e','3ec294db-a64a-4420-9b4a-0d917f65d399')),
   'tenant_memberships', (select count(*) from crm.tenant_memberships where tenant_id in ('fa6fc071-7529-4317-93cb-9b0bfea3bca3','19c9d8c6-1a6d-499b-95fd-cc23d1cd555b','3bc0e6a4-6438-420d-b603-ec91bf296f4e','3ec294db-a64a-4420-9b4a-0d917f65d399')),
   'cards', (select count(*) from crm.opportunities where tenant_id in ('fa6fc071-7529-4317-93cb-9b0bfea3bca3','19c9d8c6-1a6d-499b-95fd-cc23d1cd555b','3bc0e6a4-6438-420d-b603-ec91bf296f4e','3ec294db-a64a-4420-9b4a-0d917f65d399')),
-  'contacts', (select count(*) from crm.contacts where tenant_id in ('fa6fc071-7529-4317-93cb-9b0bfea3bca3','19c9d8c6-1a6d-499b-95fd-cc23d1cd555b','3bc0e6a4-6438-420d-b603-ec91bf296f4e','3ec294db-a64a-4420-b603-ec91bf296f4e')),
+  'contacts', (select count(*) from crm.contacts where tenant_id in ('fa6fc071-7529-4317-93cb-9b0bfea3bca3','19c9d8c6-1a6d-499b-95fd-cc23d1cd555b','3bc0e6a4-6438-420d-b603-ec91bf296f4e','3ec294db-a64a-4420-9b4a-0d917f65d399')),
   'activities', (select count(*) from crm.activities where tenant_id in ('fa6fc071-7529-4317-93cb-9b0bfea3bca3','19c9d8c6-1a6d-499b-95fd-cc23d1cd555b','3bc0e6a4-6438-420d-b603-ec91bf296f4e','3ec294db-a64a-4420-9b4a-0d917f65d399')),
   'normalized_events', (select count(*) from public.events_normalized where source_system='ghl' and event_code in ('lead','primeira_conversa','agendado','compareceu','ganho','perdido'))
 ) as seed_counts;
