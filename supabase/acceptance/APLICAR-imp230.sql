@@ -199,7 +199,7 @@ $fn$;
 
 revoke all on function crm.emit_opportunity_stage_event() from public, anon, authenticated, service_role;
 
-create or replace function crm.intake_form_lead(
+create or replace function public.intake_form_lead(
   p_client_slug text,
   p_form_intake_token uuid,
   p_full_name text,
@@ -255,8 +255,8 @@ begin
 end
 $fn$;
 
-revoke all on function crm.intake_form_lead(text, uuid, text, text, text, text, text, text, text, text, text, text, text, text) from public, anon, authenticated;
-grant execute on function crm.intake_form_lead(text, uuid, text, text, text, text, text, text, text, text, text, text, text, text) to service_role;
+revoke all on function public.intake_form_lead(text, uuid, text, text, text, text, text, text, text, text, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.intake_form_lead(text, uuid, text, text, text, text, text, text, text, text, text, text, text, text) to service_role;
 
 insert into supabase_migrations.schema_migrations (version, name) values ('20261001000000','imp230_form_intake') on conflict (version) do nothing;
 
@@ -265,7 +265,7 @@ begin
   if not exists (select 1 from information_schema.columns where table_schema='public' and table_name='clients_base' and column_name='form_intake_token') then raise exception 'IMP230_GATE: token ausente'; end if;
   if (select count(*) from information_schema.columns where table_schema='crm' and table_name='opportunities' and column_name in ('gclid','gbraid','wbraid','utm_source','utm_medium','utm_campaign','utm_content','utm_term')) <> 8 then raise exception 'IMP230_GATE: colunas Google incompletas'; end if;
   if has_table_privilege('anon','crm.contacts','INSERT') or has_table_privilege('anon','crm.opportunities','INSERT') then raise exception 'IMP230_GATE: anon recebeu INSERT'; end if;
-  if has_function_privilege('anon','crm.intake_form_lead(text,uuid,text,text,text,text,text,text,text,text,text,text,text,text)','EXECUTE') then raise exception 'IMP230_GATE: anon executa intake'; end if;
-  if not has_function_privilege('service_role','crm.intake_form_lead(text,uuid,text,text,text,text,text,text,text,text,text,text,text,text)','EXECUTE') then raise exception 'IMP230_GATE: service_role sem intake'; end if;
+  if has_function_privilege('anon','public.intake_form_lead(text,uuid,text,text,text,text,text,text,text,text,text,text,text,text)','EXECUTE') then raise exception 'IMP230_GATE: anon executa intake'; end if;
+  if not has_function_privilege('service_role','public.intake_form_lead(text,uuid,text,text,text,text,text,text,text,text,text,text,text,text)','EXECUTE') then raise exception 'IMP230_GATE: service_role sem intake'; end if;
 end
 $gate$;

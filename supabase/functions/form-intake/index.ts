@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
   const { error: tokenRateError } = await db.from("form_intake_rate_limit").upsert({ window_started: windowStarted, ip: "0.0.0.0", form_intake_token: formToken, request_count: tokenCount + 1 });
   if (ipRateError || tokenRateError) return new Response("service unavailable", { status: 503 });
 
-  const { data, error } = await db.schema("crm").rpc("intake_form_lead", {
+  const { data, error } = await db.rpc("intake_form_lead", {
     p_client_slug: clientSlug, p_form_intake_token: formToken, p_full_name: fullName,
     p_phone: phone, p_email: email, p_gclid: text(body.gclid, 500), p_gbraid: text(body.gbraid, 500),
     p_wbraid: text(body.wbraid, 500), p_utm_source: text(body.utm_source, 200), p_utm_medium: text(body.utm_medium, 200),

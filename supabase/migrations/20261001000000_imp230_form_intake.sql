@@ -198,7 +198,7 @@ $fn$;
 
 revoke all on function crm.emit_opportunity_stage_event() from public, anon, authenticated, service_role;
 
-create or replace function crm.intake_form_lead(
+create or replace function public.intake_form_lead(
   p_client_slug text,
   p_form_intake_token uuid,
   p_full_name text,
@@ -250,12 +250,19 @@ begin
   if v_stage is null then raise exception 'FORM_INTAKE_UNAVAILABLE'; end if;
   insert into crm.opportunities (tenant_id, contact_id, pipeline_version_id, current_stage_id, title, conversion_source, source_url, gclid, gbraid, wbraid, utm_source, utm_medium, utm_campaign, utm_content, utm_term)
   values (v_tenant, v_contact, v_pipeline, v_stage, v_name, v_source, nullif(pg_catalog.btrim(coalesce(p_page_url, '')), ''), nullif(pg_catalog.btrim(coalesce(p_gclid, '')), ''), nullif(pg_catalog.btrim(coalesce(p_gbraid, '')), ''), nullif(pg_catalog.btrim(coalesce(p_wbraid, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_source, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_medium, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_campaign, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_content, '')), ''), nullif(pg_catalog.btrim(coalesce(p_utm_term, '')), '')) returning id into v_opp;
+  -- IMP-230 (revisao do Head): grava o historico inicial, como todo resto do
+  -- sistema faz ao abrir um card (a validacao so exige isso em UPDATE, mas
+  -- sem esta linha a aba de historico do card nasceria vazia).
+  insert into crm.opportunity_stage_history
+    (tenant_id, opportunity_id, from_stage_id, to_stage_id, transition_type, origin, actor_profile_id, reason, occurred_at)
+  values
+    (v_tenant, v_opp, null, v_stage, 'automatic', 'sistema', null, 'formulario do site (IMP-230)', pg_catalog.now());
   return pg_catalog.jsonb_build_object('contact_id', v_contact, 'opportunity_id', v_opp, 'deduped', false);
 end
 $fn$;
 
-revoke all on function crm.intake_form_lead(text, uuid, text, text, text, text, text, text, text, text, text, text, text, text) from public, anon, authenticated;
-grant execute on function crm.intake_form_lead(text, uuid, text, text, text, text, text, text, text, text, text, text, text, text) to service_role;
+revoke all on function public.intake_form_lead(text, uuid, text, text, text, text, text, text, text, text, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.intake_form_lead(text, uuid, text, text, text, text, text, text, text, text, text, text, text, text) to service_role;
 
 insert into supabase_migrations.schema_migrations (version, name) values ('20261001000000','imp230_form_intake') on conflict (version) do nothing;
 
@@ -264,7 +271,7 @@ begin
   if not exists (select 1 from information_schema.columns where table_schema='public' and table_name='clients_base' and column_name='form_intake_token') then raise exception 'IMP230_GATE: token ausente'; end if;
   if (select count(*) from information_schema.columns where table_schema='crm' and table_name='opportunities' and column_name in ('gclid','gbraid','wbraid','utm_source','utm_medium','utm_campaign','utm_content','utm_term')) <> 8 then raise exception 'IMP230_GATE: colunas Google incompletas'; end if;
   if has_table_privilege('anon','crm.contacts','INSERT') or has_table_privilege('anon','crm.opportunities','INSERT') then raise exception 'IMP230_GATE: anon recebeu INSERT'; end if;
-  if has_function_privilege('anon','crm.intake_form_lead(text,uuid,text,text,text,text,text,text,text,text,text,text,text,text)','EXECUTE') then raise exception 'IMP230_GATE: anon executa intake'; end if;
-  if not has_function_privilege('service_role','crm.intake_form_lead(text,uuid,text,text,text,text,text,text,text,text,text,text,text,text)','EXECUTE') then raise exception 'IMP230_GATE: service_role sem intake'; end if;
+  if has_function_privilege('anon','public.intake_form_lead(text,uuid,text,text,text,text,text,text,text,text,text,text,text,text)','EXECUTE') then raise exception 'IMP230_GATE: anon executa intake'; end if;
+  if not has_function_privilege('service_role','public.intake_form_lead(text,uuid,text,text,text,text,text,text,text,text,text,text,text,text)','EXECUTE') then raise exception 'IMP230_GATE: service_role sem intake'; end if;
 end
 $gate$;

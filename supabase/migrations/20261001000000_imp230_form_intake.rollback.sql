@@ -1,6 +1,10 @@
 -- IMP-230 rollback. Leads criados anteriormente NAO sao apagados.
 set local lock_timeout = '5s';
-drop function if exists crm.intake_form_lead(text, uuid, text, text, text, text, text, text, text, text, text, text, text, text);
+-- Se o aceite rodou antes do rollback na mesma transacao, ha gatilhos
+-- deferred pendentes (opportunities_validate_outcome_consistency) que
+-- impedem ALTER TABLE em crm.opportunities mais abaixo.
+set constraints all immediate;
+drop function if exists public.intake_form_lead(text, uuid, text, text, text, text, text, text, text, text, text, text, text, text);
 drop table if exists public.form_intake_rate_limit;
 create or replace function crm.emit_opportunity_stage_event()
 returns trigger
