@@ -245,7 +245,7 @@ begin
     )), 'pending'
   );
 
-  if v_google_enabled and pg_catalog.nullif(pg_catalog.btrim(coalesce(v_google_conversion_action, '')), '') is not null
+  if v_google_enabled and nullif(pg_catalog.btrim(coalesce(v_google_conversion_action, '')), '') is not null
      and v_google_event_name is not null then
     insert into public.conversion_outbox (
       normalized_event_id, ghl_location_id, contact_id, event_code, platform,

@@ -43,10 +43,11 @@ declare
   v_after_normalized bigint;
   v_after_outbox bigint;
 begin
+  select * into v_before from imp218_before;
   v_before_normalized := v_before.normalized_count;
   v_before_outbox := v_before.outbox_count;
   select count(*) into v_after_normalized from public.events_normalized where client_id='3ec294db-a64a-4420-9b4a-0d917f65d399' and source_system='impuls_crm';
-  select count(*) into v_after_outbox from public.conversion_outbox co join public.events_normalized en on en.id=co.normalized_event_id where en.client_id='3ec294db-a64a-0d917f65d399' and en.source_system='impuls_crm';
+  select count(*) into v_after_outbox from public.conversion_outbox co join public.events_normalized en on en.id=co.normalized_event_id where en.client_id='3ec294db-a64a-4420-9b4a-0d917f65d399' and en.source_system='impuls_crm';
   if v_after_normalized-v_before_normalized <> 1 then raise exception 'IMP218_ACCEPT: normalized delta=%', v_after_normalized-v_before_normalized; end if;
   if v_after_outbox-v_before_outbox <> 2 then raise exception 'IMP218_ACCEPT: outbox delta=%', v_after_outbox-v_before_outbox; end if;
   select en.id into v_event from public.events_normalized en where en.client_id='3ec294db-a64a-4420-9b4a-0d917f65d399' and en.source_system='impuls_crm' and en.event_code='agendado' order by en.received_at desc limit 1;
