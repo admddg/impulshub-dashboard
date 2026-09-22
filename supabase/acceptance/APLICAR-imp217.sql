@@ -289,20 +289,6 @@ begin
 
 
 
-  update crm.opportunities o
-
-     set current_stage_id = v_ganho, status = 'won',
-
-         closed_at = pg_catalog.now(),
-
-         stage_version = o.stage_version + 1,
-
-         updated_at = pg_catalog.now()
-
-   where o.id = p_opportunity_id;
-
-
-
   insert into crm.commercial_outcomes
 
     (tenant_id, opportunity_id, outcome, origin, actor_profile_id,
@@ -314,6 +300,20 @@ begin
     (v_tenant, p_opportunity_id, 'won', 'manual', auth.uid(),
 
      p_evidence, v_value, v_value_status, v_currency, true, pg_catalog.now());
+
+
+
+  update crm.opportunities o
+
+     set current_stage_id = v_ganho, status = 'won',
+
+         closed_at = pg_catalog.now(),
+
+         stage_version = o.stage_version + 1,
+
+         updated_at = pg_catalog.now()
+
+   where o.id = p_opportunity_id;
 
 
 
@@ -447,20 +447,6 @@ begin
 
 
 
-  update crm.opportunities o
-
-     set current_stage_id = v_perdido, status = 'lost',
-
-         closed_at = pg_catalog.now(),
-
-         stage_version = o.stage_version + 1,
-
-         updated_at = pg_catalog.now()
-
-   where o.id = p_opportunity_id;
-
-
-
   -- Perda obriga value_status='pending'. Nao existe perdido com valor.
 
   insert into crm.commercial_outcomes
@@ -474,6 +460,20 @@ begin
     (v_tenant, p_opportunity_id, 'lost', 'manual', auth.uid(),
 
      v_reason_id, v_evidence, null, 'pending', null, true, pg_catalog.now());
+
+
+
+  update crm.opportunities o
+
+     set current_stage_id = v_perdido, status = 'lost',
+
+         closed_at = pg_catalog.now(),
+
+         stage_version = o.stage_version + 1,
+
+         updated_at = pg_catalog.now()
+
+   where o.id = p_opportunity_id;
 
 
 

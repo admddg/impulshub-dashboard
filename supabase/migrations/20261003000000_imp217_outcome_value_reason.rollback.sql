@@ -178,7 +178,7 @@ begin
   );
   return new;
 end;
-$function$
+$function$;
 
 CREATE OR REPLACE FUNCTION public.crm_register_won(p_opportunity_id uuid, p_evidence text, p_expected_stage_version integer, p_value numeric DEFAULT NULL::numeric, p_currency text DEFAULT 'BRL'::text)
  RETURNS SETOF v_crm_cards_v1
@@ -325,7 +325,7 @@ begin
 
 end;
 
-$function$
+$function$;
 
 CREATE OR REPLACE FUNCTION public.crm_register_lost(p_opportunity_id uuid, p_loss_reason_code text, p_expected_stage_version integer, p_note text DEFAULT NULL::text)
  RETURNS SETOF v_crm_cards_v1
@@ -456,7 +456,7 @@ begin
 
 end;
 
-$function$
+$function$;
 
 alter table public.events_normalized drop column if exists currency;
 delete from supabase_migrations.schema_migrations where version = '20261003000000';
