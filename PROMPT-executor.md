@@ -1,7 +1,7 @@
 Tarefa: implemente EXATAMENTE conforme docs/task-files/TASK-IMP-217.md (leia inteiro primeiro) e
 AGENTS.md. Branch atual feat/imp-217-outcome-value-reason, a partir de origin/main.
 
-DECISÕES DO CAIO (resolvem os itens "PENDENTE" do task file — não reabra):
+DECISÕES DO CAIO (resolvem os itens PENDENTE do task file — não reabra):
 - Decisão 8 (Purchase com valor pendente): opção (a) — NÃO criar a linha em conversion_outbox
   enquanto value_status='pending'. O dashboard (events_normalized) recebe o evento de ganho
   normalmente, sempre. A linha de conversion_outbox só nasce quando o valor existir.
