@@ -106,6 +106,16 @@ Os achados do seed: `opportunity_stage_history.transition_type` aceita `automati
 - Fase 2: dump schema-only renovado da produção e restore no ref `nfratueiutxnypbxfnmi`. O primeiro restore sobre o schema existente falhou com `42P16` por tabela já existente; não houve commit parcial. O segundo caminho, após reset transacional dos schemas `crm`, `private` e `public`, passou.
 - Estrutura medida após restore: 35 tabelas, 46 views/materialized views, 43 funções e 39 policies em `public`, `crm` e `private`; `to_regclass('cron.job') is null` retornou `true`; ledger staging contém 2 linhas.
 - Fase 3: preflight de `auth.users`/`auth.identities` confirmou `auth.users.confirmed_at` e `auth.identities.email` como `GENERATED ALWAYS`. O seed foi executado uma vez e sofreu rollback com `P0001 IMP-216 cannot map CRM stage ...0201 to an event code`, porque `crm.event_map` estava vazio no dump e não era populado pelo seed.
-- Correção versionada: o seed agora popula os seis mapeamentos canônicos de `crm.event_map`. A correção não foi reaplicada ao staging nesta sessão, conforme a regra de parar após falha da etapa.
-- Fase 4: não executada; depende de uma nova execução autorizada do seed corrigido e da leitura de volta das contagens esperadas: 4 clientes, 4 usuários, 10 vínculos, 8 cards, 4 contatos, 8 atividades e 6 eventos normalizados.
+- Correção versionada: o seed agora popula os seis mapeamentos canônicos de `crm.event_map`; ela foi executada com sucesso na retomada de 2026-09-22 e as contagens foram lidas de volta.
+- Fase 4: bloqueada após falhas do harness ao interpretar diretivas `psql` dos aceites; os aceites permanecem pendentes e não há declaração de reconstrução completa.
 - `scripts/db-prova.py --dry-run` passou como preflight somente-leitura do contrato (`writes=0`, `ddl=0`, `commit=0`), mas permanece fixado no projeto de produção e suas contagens não são evidência do staging.
+
+## Retomada autorizada em 2026-09-22
+
+- Seed corrigido executado no único alvo autorizado `nfratueiutxnypbxfnmi`: `COMMIT ok (21 statements)`.
+- Contagens medidas após o commit: 4 clientes, 4 usuários, 10 vínculos em `client_users`, 10 vínculos em `crm.tenant_memberships`, 8 cards, 4 contatos, 8 atividades e 6 eventos normalizados.
+- `select to_regclass('cron.job') is null` retornou `true`.
+- O aceite `imp213-acceptance.sql` não chegou a validar o banco: `staging-run.py` não suporta `\\gset`; o CLI/API também não suporta `\\set`; a tentativa alternativa de compatibilidade falhou novamente ao processar a diretiva. Todos os caminhos fizeram rollback ou falharam antes de commit.
+- Conforme o contrato operacional, a etapa de aceites foi interrompida após duas falhas técnicas. `imp213-isolation.sql`, `imp214-acceptance.sql`, `imp216-acceptance.sql`, `imp216-isolation.sql`, `imp230-acceptance.sql`, `imp230-isolation.sql` e `imp231-acceptance.sql` permanecem não executados nesta sessão.
+- O aceite 231 exige `cron.job`, deliberadamente ausente no staging reconstruído; sua execução só pode ocorrer em um contexto próprio de prova da migration que cria o job, não nesta reconstrução.
+- Estado: seed verificado; aceites pendentes por bloqueio do harness, sem declarar a reconstrução completa.

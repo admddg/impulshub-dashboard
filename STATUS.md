@@ -2,7 +2,7 @@
 
 ## Estado
 
-Bloqueado na Fase 3 após uma execução do seed. Não executar nova tentativa nesta sessão.
+Seed da Fase 3 executado com sucesso; aceites da Fase 4 bloqueados por incompatibilidade do harness com diretivas psql. Não repetir os aceites nesta sessão: o limite de duas falhas da etapa foi atingido.
 
 ## Evidência
 
@@ -16,19 +16,22 @@ Bloqueado na Fase 3 após uma execução do seed. Não executar nova tentativa n
 - Ledger `supabase_migrations.schema_migrations`: 2 linhas.
 - Preflight `python scripts/db-prova.py --dry-run`: `dry_run=passed`, `writes=0`, `ddl=0`, `commit=0`; o script está fixado na produção, então as contagens retornadas por ele não são do staging.
 - Preflight auth no staging: `auth.users.confirmed_at` e `auth.identities.email` são `GENERATED ALWAYS`.
-- Seed: uma execução, rollback por `P0001 IMP-216 cannot map CRM stage 00000000-0000-0000-0000-000000000201 to an event code`.
+- Seed corrigido executado em 2026-09-22 com `python scripts/staging-run.py commit supabase/staging/seed-synthetic.sql`: `COMMIT ok (21 statements) em nfratueiutxnypbxfnmi`.
+- Leitura de volta após o commit: `clients=4`, `users=4`, `client_users=10`, `tenant_memberships=10`, `cards=8`, `contacts=4`, `activities=8`, `normalized_events=6`.
+- `select to_regclass('cron.job') is null`: `true`.
+- Aceites da Fase 4: `imp213-acceptance.sql` tentou primeiro pelo `staging-run.py` e falhou antes do SQL por diretiva `\\gset`; a tentativa pelo CLI/API também falhou porque o executor remoto não interpreta `\\set`; o executor temporário de compatibilidade falhou novamente ao encontrar a diretiva. As tentativas foram rollback/sem persistência. O limite de duas falhas da etapa foi atingido; `imp213-isolation.sql`, `imp214-acceptance.sql` e os aceites 216/230/231 não foram executados nesta sessão.
+- O aceite 231 não é compatível com a reconstrução atual: exige `cron.job`, enquanto o contrato desta reconstrução exige sua ausência; não foi executado por causa do bloqueio da etapa.
 
 ## Diagnóstico e correção
 
 O dump cria `crm.event_map`, mas a fixture não inseria suas seis linhas canônicas. O trigger `crm.emit_opportunity_stage_event` consulta esse catálogo ao inserir `crm.opportunities`, causando o abort.
 
-`supabase/staging/seed-synthetic.sql` foi corrigido para inserir os seis mapeamentos. A correção ainda não foi executada remotamente nesta sessão.
+`supabase/staging/seed-synthetic.sql` foi corrigido para inserir os seis mapeamentos. A correção foi executada remotamente no staging nesta retomada e confirmou as contagens esperadas.
 
 ## Próxima execução autorizada
 
-1. Rodar uma nova execução controlada do seed corrigido no staging.
-2. Ler de volta 4 clientes, 4 usuários, 10 vínculos, 8 cards, 4 contatos, 8 atividades e 6 eventos normalizados.
-3. Só então executar os aceites IMP-213, isolamento, IMP-214 e aceites posteriores disponíveis.
-4. Confirmar novamente `cron.job` ausente.
+1. Corrigir o harness para interpretar as diretivas `psql` usadas nos aceites, sem alterar o contrato dos arquivos.
+2. Executar os aceites IMP-213, isolamento, IMP-214 e aceites posteriores disponíveis em transações com rollback.
+3. Confirmar novamente `cron.job` ausente após os aceites.
 
 Não declarar staging reconstruído até essas medições e aceites passarem.
