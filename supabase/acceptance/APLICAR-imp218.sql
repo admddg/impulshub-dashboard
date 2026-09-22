@@ -1,3 +1,4 @@
+-- IMP-218 application bundle; self-contained, no \ir.
 -- IMP-218: event x platform matrix for Meta and Google.
 -- Source of truth: the live post-IMP-217 trigger definition plus the accepted n8n contract.
 set local lock_timeout = '5s';
