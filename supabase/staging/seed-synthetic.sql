@@ -109,6 +109,23 @@ values
   ('00000000-0000-0000-0000-000000000206', '00000000-0000-0000-0000-000000000101', 'perdido', 'Perdido', 6, true, timestamp '2026-09-22')
 on conflict (id) do nothing;
 
+insert into crm.event_map
+  (event_code, stage_code, version, event_name, funnel_step, is_active, created_at)
+values
+  ('lead', 'lead', 1, 'Lead', 1, true, timestamp '2026-09-22'),
+  ('primeira_conversa', 'atendimento', 1, 'Primeira conversa', 2, true, timestamp '2026-09-22'),
+  ('agendado', 'agendado', 1, 'Agendado', 3, true, timestamp '2026-09-22'),
+  ('compareceu', 'compareceu', 1, 'Compareceu', 4, true, timestamp '2026-09-22'),
+  ('ganho', 'ganho', 1, 'Ganho', 5, true, timestamp '2026-09-22'),
+  ('perdido', 'perdido', 1, 'Perdido', 6, true, timestamp '2026-09-22')
+on conflict (event_code) do update set
+  stage_code = excluded.stage_code,
+  version = excluded.version,
+  event_name = excluded.event_name,
+  funnel_step = excluded.funnel_step,
+  is_active = excluded.is_active,
+  created_at = excluded.created_at;
+
 insert into crm.contacts (id, tenant_id, full_name, email, phone_normalized, default_owner_profile_id, status, created_at, updated_at)
 values
   ('20000000-0000-4000-8000-000000000001', 'fa6fc071-7529-4317-93cb-9b0bfea3bca3', 'Royal Synthetic Contact', 'royal.contact@staging.invalid', '5511999000001', 'd036c4d6-0969-4175-b917-ff7e4dd3b376', 'active', timestamp '2026-01-01', timestamp '2026-01-01'),

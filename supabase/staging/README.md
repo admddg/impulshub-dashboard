@@ -99,4 +99,13 @@ O arquivo já foi corrigido para `origin='sistema'`, mas não foi feita uma terc
 ## Provar uma migration no staging (runner do Head)
 
 `python scripts/staging-run.py rollback <arquivos.sql...>` roda os arquivos em UMA transação no staging (`nfratueiutxnypbxfnmi`, aborta se o alvo for produção) e termina em ROLLBACK; `commit` só para o seed. Padrão de prova: migration + aceite + (reset role) + isolamento + rollback da migration, tudo em `rollback`. A migration deixa `set constraints all immediate`; o aceite deve começar com `set constraints all deferred`. Aceites 213, 214 e 216 rodam aqui sem adaptação (UUIDs iguais aos de produção, dados sintéticos).
-Achados do seed: `opportunity_stage_history.transition_type` aceita `automatic|manual|undo|correction`; `origin` aceita `frase_configurada|manual|integracao|sistema`; a tabela é append-only.
+Os achados do seed: `opportunity_stage_history.transition_type` aceita `automatic|manual|undo|correction`; `origin` aceita `frase_configurada|manual|integracao|sistema`; a tabela é append-only.
+
+## Reconstrução executada em 2026-09-22
+
+- Fase 2: dump schema-only renovado da produção e restore no ref `nfratueiutxnypbxfnmi`. O primeiro restore sobre o schema existente falhou com `42P16` por tabela já existente; não houve commit parcial. O segundo caminho, após reset transacional dos schemas `crm`, `private` e `public`, passou.
+- Estrutura medida após restore: 35 tabelas, 46 views/materialized views, 43 funções e 39 policies em `public`, `crm` e `private`; `to_regclass('cron.job') is null` retornou `true`; ledger staging contém 2 linhas.
+- Fase 3: preflight de `auth.users`/`auth.identities` confirmou `auth.users.confirmed_at` e `auth.identities.email` como `GENERATED ALWAYS`. O seed foi executado uma vez e sofreu rollback com `P0001 IMP-216 cannot map CRM stage ...0201 to an event code`, porque `crm.event_map` estava vazio no dump e não era populado pelo seed.
+- Correção versionada: o seed agora popula os seis mapeamentos canônicos de `crm.event_map`. A correção não foi reaplicada ao staging nesta sessão, conforme a regra de parar após falha da etapa.
+- Fase 4: não executada; depende de uma nova execução autorizada do seed corrigido e da leitura de volta das contagens esperadas: 4 clientes, 4 usuários, 10 vínculos, 8 cards, 4 contatos, 8 atividades e 6 eventos normalizados.
+- `scripts/db-prova.py --dry-run` passou como preflight somente-leitura do contrato (`writes=0`, `ddl=0`, `commit=0`), mas permanece fixado no projeto de produção e suas contagens não são evidência do staging.
