@@ -73,7 +73,11 @@ begin
     raise exception 'IMP231_GATE: extensão pg_cron ou cron.job indisponível';
   end if;
 
-  select count(*), max(lower(regexp_replace(command, '\s+', ' ', 'g')))
+  -- Comparacao robusta a formatacao: remove TODO espaco em branco (nao so
+  -- colapsa run de espacos), para nao depender de como cada arquivo quebra
+  -- linha dentro do corpo do job (achado do Head: o gate quebrou sozinho por
+  -- causa de um espaco a mais depois de um parenteses).
+  select count(*), max(lower(regexp_replace(command, '\s+', '', 'g')))
     into job_count, command_text
     from cron.job
    where jobname = 'meta-ads-raw-retention-daily';
@@ -88,7 +92,7 @@ begin
   ) then
     raise exception 'IMP231_GATE: schedule esperado não encontrado';
   end if;
-  if command_text is distinct from lower(regexp_replace(expected_command, '\s+', ' ', 'g')) then
+  if command_text is distinct from lower(regexp_replace(expected_command, '\s+', '', 'g')) then
     raise exception 'IMP231_GATE: comando do job não é o UPDATE idempotente esperado';
   end if;
   if exists (

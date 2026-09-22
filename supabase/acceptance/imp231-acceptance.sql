@@ -31,22 +31,22 @@ begin
   if (select count(*) from cron.job where jobname = 'meta-ads-raw-retention-daily') <> 1 then
     raise exception 'IMP231_ACCEPTANCE: job não é único';
   end if;
-  select lower(regexp_replace(command, '\s+', ' ', 'g')) into command_text
+  select lower(regexp_replace(command, '\s+', '', 'g')) into command_text
     from cron.job where jobname = 'meta-ads-raw-retention-daily';
   if (select schedule from cron.job where jobname = 'meta-ads-raw-retention-daily') <> '15 3 * * *'
-     or command_text is distinct from lower(regexp_replace(expected, '\s+', ' ', 'g')) then
+     or command_text is distinct from lower(regexp_replace(expected, '\s+', '', 'g')) then
     raise exception 'IMP231_ACCEPTANCE: schedule ou comando divergente';
   end if;
 end
 $cron$;
 
--- A tabela é global e não tem client_id: a limpeza não é uma leitura de usuário
--- final nem uma policy RLS; portanto o teste de isolamento entre clientes não se
--- aplica diretamente. Se a estrutura ganhar client_id, revisar esta decisão.
-select table_schema, table_name, column_name
-  from information_schema.columns
- where table_schema = 'public' and table_name = 'meta_ads_daily'
-   and column_name = 'client_id';
+-- Correção do Head: meta_ads_daily TEM client_id (a investigação da IMP-231
+-- errou nesse ponto). O teste de isolamento entre clientes não se aplica
+-- mesmo assim, porque este UPDATE zera só campos jsonb brutos por idade,
+-- roda como job interno (nao como usuario final) e nao filtra nem expõe
+-- nenhum client_id — nenhum dado estruturado nem RLS de tenant é tocado.
+select count(*) as clientes_distintos_na_tabela
+  from (select distinct client_id from public.meta_ads_daily) c;
 
 rollback;
 
