@@ -119,3 +119,25 @@ Os achados do seed: `opportunity_stage_history.transition_type` aceita `automati
 - Conforme o contrato operacional, a etapa de aceites foi interrompida após duas falhas técnicas. `imp213-isolation.sql`, `imp214-acceptance.sql`, `imp216-acceptance.sql`, `imp216-isolation.sql`, `imp230-acceptance.sql`, `imp230-isolation.sql` e `imp231-acceptance.sql` permanecem não executados nesta sessão.
 - O aceite 231 exige `cron.job`, deliberadamente ausente no staging reconstruído; sua execução só pode ocorrer em um contexto próprio de prova da migration que cria o job, não nesta reconstrução.
 - Estado: seed verificado; aceites pendentes por bloqueio do harness, sem declarar a reconstrução completa.
+
+## Retomada do harness e aceites em 2026-09-22
+
+`scripts/staging-run.py` passou a interpretar apenas o subconjunto usado pelos
+aceites: `\\set NOME valor`, `\\gset PREFIXO`, substituição literal `:NOME` e
+substituição SQL-quoted `:'NOME'`. A validação local encontrou 14 statements e 5
+diretivas em `imp213-acceptance.sql`, e 16 statements e 4 diretivas em
+`imp229-acceptance.sql`. O harness mantém uma transação por execução e todos os
+aceites abaixo terminaram em rollback quando houve falha.
+
+- `imp213-acceptance.sql`: bloqueado no primeiro `\\gset`; a fixture não possui
+  outcome financeiro elegível (`value` não nulo e `value_status='valid'`).
+- `imp213-isolation.sql`: `ROLLBACK ok (9 statements)`.
+- `imp214-acceptance.sql`: `ROLLBACK ok (14 statements)`.
+- `imp216-acceptance.sql` + `imp216-isolation.sql`: falhou no assertion de
+  isolamento; Royal apresentou delta 2 em `events_normalized` onde o esperado
+  era delta 0. A execução foi interrompida conforme o limite de duas falhas da
+  etapa de aceites; 230 e 231 não foram executados.
+- Confirmação final por leitura: `select to_regclass('cron.job') is null` → `true`.
+
+O staging ainda não deve ser declarado reconstruído. O aceite 231 permanece
+intencionalmente excluído porque exige `cron.job`, ausente por contrato.

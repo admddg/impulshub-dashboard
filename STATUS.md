@@ -2,7 +2,7 @@
 
 ## Estado
 
-Seed da Fase 3 executado com sucesso; aceites da Fase 4 bloqueados por incompatibilidade do harness com diretivas psql. Não repetir os aceites nesta sessão: o limite de duas falhas da etapa foi atingido.
+Seed da Fase 3 executado com sucesso; o harness agora interpreta o subconjunto psql usado pelos aceites. A reconstrução segue incompleta: IMP-213 depende de fixture financeira ausente e IMP-216 encontrou variação indevida no staging.
 
 ## Evidência
 
@@ -19,8 +19,13 @@ Seed da Fase 3 executado com sucesso; aceites da Fase 4 bloqueados por incompati
 - Seed corrigido executado em 2026-09-22 com `python scripts/staging-run.py commit supabase/staging/seed-synthetic.sql`: `COMMIT ok (21 statements) em nfratueiutxnypbxfnmi`.
 - Leitura de volta após o commit: `clients=4`, `users=4`, `client_users=10`, `tenant_memberships=10`, `cards=8`, `contacts=4`, `activities=8`, `normalized_events=6`.
 - `select to_regclass('cron.job') is null`: `true`.
-- Aceites da Fase 4: `imp213-acceptance.sql` tentou primeiro pelo `staging-run.py` e falhou antes do SQL por diretiva `\\gset`; a tentativa pelo CLI/API também falhou porque o executor remoto não interpreta `\\set`; o executor temporário de compatibilidade falhou novamente ao encontrar a diretiva. As tentativas foram rollback/sem persistência. O limite de duas falhas da etapa foi atingido; `imp213-isolation.sql`, `imp214-acceptance.sql` e os aceites 216/230/231 não foram executados nesta sessão.
-- O aceite 231 não é compatível com a reconstrução atual: exige `cron.job`, enquanto o contrato desta reconstrução exige sua ausência; não foi executado por causa do bloqueio da etapa.
+- Harness corrigido em `scripts/staging-run.py`: suporta `\\set`, `\\gset PREFIXO`, `:variavel` e `:'variavel'`, com casts preservados; validação local mediu 14 SQL + 5 diretivas em IMP-213 e 16 SQL + 4 diretivas em IMP-229.
+- `imp213-acceptance.sql`: rollback sem persistência, bloqueado no primeiro `\\gset` porque a query encontrou 0 linhas elegíveis (`commercial_outcomes.value` não nulo e `value_status='valid'`) na fixture sintética.
+- `imp213-isolation.sql`: `ROLLBACK ok (9 statements)`.
+- `imp214-acceptance.sql`: `ROLLBACK ok (14 statements)`.
+- `imp216-acceptance.sql` + `imp216-isolation.sql`: rollback após falha de aceite; para cliente GHL Royal houve delta indevido em `events_normalized` (delta observado 2, esperado 0). O limite operacional de duas falhas nesta etapa de aceites foi atingido; 230 e 231 não foram executados.
+- Confirmação final somente-leitura: `cron.job_absent=True`.
+- O aceite 231 continua fora desta reconstrução: exige `cron.job`, deliberadamente ausente.
 
 ## Diagnóstico e correção
 
@@ -30,8 +35,8 @@ O dump cria `crm.event_map`, mas a fixture não inseria suas seis linhas canôni
 
 ## Próxima execução autorizada
 
-1. Corrigir o harness para interpretar as diretivas `psql` usadas nos aceites, sem alterar o contrato dos arquivos.
-2. Executar os aceites IMP-213, isolamento, IMP-214 e aceites posteriores disponíveis em transações com rollback.
-3. Confirmar novamente `cron.job` ausente após os aceites.
+1. Corrigir a fixture/contrato do aceite 213 para fornecer um outcome financeiro elegível, sob nova autorização.
+2. Investigar a emissão indevida do IMP-216 para clientes GHL antes de repetir a etapa.
+3. Executar 230 somente após resolver os dois bloqueios e sob nova autorização; manter 231 fora deste staging.
 
 Não declarar staging reconstruído até essas medições e aceites passarem.
