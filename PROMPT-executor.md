@@ -1,29 +1,37 @@
-Tarefa: implemente EXATAMENTE conforme docs/task-files/TASK-IMP-217.md (leia inteiro primeiro) e
-AGENTS.md. Branch atual feat/imp-217-outcome-value-reason, a partir de origin/main.
+Retome a IMP-217 (branch feat/imp-217-outcome-value-reason). NOVA EXECUCAO AUTORIZADA, contador
+zerado. Leia STATUS.md (bloqueio anterior) e o arquivo ja gerado
+supabase/migrations/20261003000000_imp217_outcome_value_reason.sql: ele esta quase certo, mas tem
+um bug de ordem que o Head encontrou na revisao.
 
-DECISÕES DO CAIO (resolvem os itens PENDENTE do task file — não reabra):
-- Decisão 8 (Purchase com valor pendente): opção (a) — NÃO criar a linha em conversion_outbox
-  enquanto value_status='pending'. O dashboard (events_normalized) recebe o evento de ganho
-  normalmente, sempre. A linha de conversion_outbox só nasce quando o valor existir.
-- Decisão 9 (preenchimento de valor depois do ganho): NÃO existe esse caso de negócio hoje. Fica
-  fora de escopo. Não implemente um segundo caminho de emissão para isso.
-- Decisão 10 (moeda): CRIAR coluna de moeda no evento (public.events_normalized). Hoje será sempre
-  'BRL' (mesmo default de crm.commercial_outcomes.currency), mas a coluna existe para o futuro.
-  Escolha o nome seguindo a convenção já usada na tabela (ex.: currency, moeda — confira o padrão
-  das colunas vizinhas antes de nomear) e documente a escolha no PR.
+O BUG: em crm.emit_opportunity_stage_event, o SELECT que le crm.commercial_outcomes (is_current)
+roda dentro do gatilho AFTER UPDATE de crm.opportunities. Em public.crm_register_won e
+public.crm_register_lost, o UPDATE em crm.opportunities acontece ANTES do INSERT em
+crm.commercial_outcomes — ou seja, quando o gatilho dispara e le commercial_outcomes, a linha do
+outcome atual (com o valor/motivo de verdade) AINDA NAO EXISTE. O evento nasce sem valor de novo,
+exatamente o defeito que a IMP-217 devia corrigir.
 
-Confirmação de ordem: você implementa APENAS a IMP-217 nesta branch/worktree. A IMP-218 (mesma
-função crm.emit_opportunity_stage_event) roda DEPOIS, em outro worktree, só quando a 217 estiver
-mesclada. Não espere pela 218.
+A CORRECAO (confirmada segura pelo Head: crm.validate_commercial_outcome nao depende do status da
+oportunidade ja estar 'won'/'lost', so exige ator ativo e evidence — ver
+docs/imp217-production-read.txt linhas ~181-220): em AMBAS as funcoes, mova o bloco
+"insert into crm.commercial_outcomes (...) values (...)" para ANTES do bloco
+"update crm.opportunities o set current_stage_id = ..." — sem mudar mais nada na ordem (o insert em
+crm.opportunity_stage_history continua onde esta, antes de tudo). Depois do UPDATE, o restante
+(milestones etc.) continua igual. NAO mude a funcao crm.emit_opportunity_stage_event alem do que ja
+esta la (a leitura de commercial_outcomes por is_current ja esta correta — so a ORDEM nas duas RPCs
+estava errada).
 
-Antes de codificar: leia a definição viva (pg_get_functiondef) de crm.emit_opportunity_stage_event,
-crm_register_won, crm_register_lost em produção (mtxnwtqwfagjzkvgsncs), SOMENTE LEITURA. Prove no
-staging (nfratueiutxnypbxfnmi) com scripts/staging-run.py quando ele estiver pronto (pode já estar,
-uma reconstrução está rodando em paralelo em outro worktree); se staging não estiver disponível
-ainda, use scripts/db-prova.py --dry-run em produção e registre isso no PR — não espere
-indefinidamente, entregue os arquivos e diga no relatório que falta a prova em staging.
+Faca essa correcao por edicao direta do arquivo .sql ja gerado (nao reescreva do zero, nao use script
+de pattern-matching fragil — edite as duas funcoes manualmente, com cuidado). Confira depois, lendo o
+arquivo, que a ordem ficou: stage_history insert -> commercial_outcomes insert -> opportunities
+update -> milestones (won) / (nada extra no lost).
 
-NÃO execute nenhuma migration fora de transação com ROLLBACK. NÃO aplique em produção. Commit a
-cada etapa (leitura documentada, migration, rollback, aceite, isolamento, APLICAR). Abra PR draft
-com gh pr create --draft. Relatório em 3 blocos. Duas falhas na mesma etapa: pare, escreva
-STATUS.md e descreva o bloqueio exato.
+Depois de corrigir:
+1. Gere/ajuste o rollback (.rollback.sql) para bater com a versao final.
+2. Prove no staging (nfratueiutxnypbxfnmi) com scripts/staging-run.py: migration + imp217-acceptance
+   + imp217-isolation + rollback, numa transacao com ROLLBACK. Preste atencao especial ao criterio
+   "Ganho com valor" (delta exato no dashboard) — e o teste que teria pego este bug.
+3. `APLICAR-imp217.sql` autocontido (sem \\ir).
+4. Commit por etapa. Abra PR draft com gh pr create --draft. Relatorio em 3 blocos.
+
+NAO execute nada em producao. Se travar duas vezes na MESMA etapa desta execucao, pare e escreva
+STATUS.md com o bloqueio exato.
