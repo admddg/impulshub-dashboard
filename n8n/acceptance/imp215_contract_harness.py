@@ -68,10 +68,41 @@ def test_consumer_is_closed_by_default():
     report = node(current, "Dry Run Report")["parameters"]["jsCode"]
     for token in ("dry_run", "allowlist_required", "cutoff_required"):
         assert_true(token in config, f"consumer config guard missing: {token}")
-    for token in ("source_system = 'impuls_crm'", "co.status in ('pending', 'failed')", "co.created_at >= cfg.cutoff_at", "co.attempts <"):
+    for token in ("source_system = 'impuls_crm'", "co.status = 'pending'", "co.created_at >= cfg.cutoff_at", "co.attempts <"):
         assert_true(token in sql, f"consumer eligibility guard missing: {token}")
     assert_true("claim_sql_gate" in report and "dry_run" in report, "dry-run report missing")
-    assert_true("Execute Workflow" not in json.dumps(current), "review-only consumer must not dispatch")
+    assert_true("Execute Workflow" in json.dumps(current), "controlled dispatch artifact missing")
+    assert_true("dispatch_enabled" in config and "false" in config, "dispatch must remain disabled")
+    assert_true("platform" in json.dumps(current) and "Meta Child" in json.dumps(current) and "Google Child" in json.dumps(current), "platform child routing missing")
+
+
+def test_claim_dispatch_slice_is_present_but_killed():
+    current = wf("IMP-215-scheduled-conversion-outbox-consumer.json")
+    serialized = json.dumps(current)
+    assert_true("Claim Eligible Outbox Rows" in serialized, "atomic claim node missing")
+    claim = node(current, "Claim Eligible Outbox Rows")["parameters"]["query"]
+    for token in ("update public.conversion_outbox", "status = 'processing'", "attempts = co.attempts + 1", "returning co.id", "for update skip locked"):
+        assert_true(token in claim.lower(), f"claim contract missing: {token}")
+    assert_true("Execute Workflow" in serialized, "controlled child dispatch nodes missing")
+    assert_true("dispatch_enabled" in serialized and "false" in serialized, "dispatch kill switch not default-off")
+    assert_true("platform" in serialized and "Meta Child" in serialized and "Google Child" in serialized, "platform routing missing")
+    assert_true("AHT6ltpnxdC29QCC" not in serialized, "live consumer must not be overwritten by artifact")
+
+
+def test_dispatcher_claim_and_protected_closure():
+    cases = [
+        ("IMP-215-dispatch-single-meta-claim.json", "Get Single Meta Outbox", "Update Single Meta Outbox Result"),
+        ("IMP-215-dispatch-single-google-claim.json", "Get Single Google Outbox", "Update Single Google Outbox Result"),
+    ]
+    for filename, get_name, update_name in cases:
+        current = wf(filename)
+        get_sql = node(current, get_name)["parameters"]["query"].lower()
+        update_sql = node(current, update_name)["parameters"]["query"].lower()
+        for token in ("claimed as", "update public.conversion_outbox", "status = 'processing'", "returning"):
+            assert_true(token in get_sql, f"{filename}: inline atomic claim missing: {token}")
+        for token in ("where id =", "status = 'processing'", "attempts =", "returning", "stale_result"):
+            assert_true(token in update_sql, f"{filename}: protected closure missing: {token}")
+        assert_true("attempts = attempts + 1" not in update_sql, f"{filename}: closure increments attempts")
 
 
 def test_negative_matrix():
@@ -90,6 +121,6 @@ def test_negative_matrix():
 
 
 if __name__ == "__main__":
-    for test in (test_exports_untouched, test_dispatcher_guards_and_preservation, test_consumer_is_closed_by_default, test_negative_matrix):
+    for test in (test_exports_untouched, test_dispatcher_guards_and_preservation, test_consumer_is_closed_by_default, test_claim_dispatch_slice_is_present_but_killed, test_dispatcher_claim_and_protected_closure, test_negative_matrix):
         test()
         print(f"PASS {test.__name__}")

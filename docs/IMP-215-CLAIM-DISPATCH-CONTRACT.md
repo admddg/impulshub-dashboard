@@ -1,6 +1,6 @@
 # IMP-215 — contrato fechado `claim → dispatcher`
 
-**Status:** recomendação técnica para implementação posterior. Esta entrega é documental; não importa, publica ou ativa n8n, não altera os exports baixados, não liga flags, não escreve banco e não envia eventos.
+**Status:** implemented inactive artifact. Claim, lease, protected closure, and platform-routed child dispatch are versioned, but default `dry_run=true` and `dispatch_enabled=false` remain in force; no workflow is activated and no external send occurs.
 
 **Base:** commit `85451ac`; exports reais em `C:/Users/caiop/Downloads/`:
 

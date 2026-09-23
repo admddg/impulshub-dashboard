@@ -1,6 +1,6 @@
 # IMP-215 — pacote implementável do claim dispatcher
 
-**Escopo desta entrega:** somente documentação e plano de patch. Não publica/importa/ativa n8n, não altera exports em `Downloads`, não liga flags, não executa claim/dispatch, não envia eventos e não escreve em produção ou staging.
+**Escopo desta entrega:** versionar o contrato executável em cópias inativas, com claim/lease/closure e child dispatch controlado. Não publica/ativa n8n, não altera exports em `Downloads`, não liga flags, não executa claim/dispatch, não envia eventos e não escreve em produção ou staging.
 
 ## 1. Veredicto de schema
 
@@ -197,14 +197,14 @@ Os exports reais foram copiados somente de `C:/Users/caiop/Downloads/` para a á
 
 - `n8n/workflows/IMP-215-dispatch-single-meta-claim.json` — cópia inativa do `1.2`, com `inline` preservado e modo `scheduled` protegido por `processing + claimed_attempt + lease`; o builder Meta, a classificação de respostas e o retry existente foram mantidos.
 - `n8n/workflows/IMP-215-dispatch-single-google-claim.json` — cópia inativa do `1.3`, com a mesma guarda; o builder Data Manager, a exceção de credencial Google e os retries existentes foram mantidos.
-- `n8n/workflows/IMP-215-scheduled-conversion-outbox-consumer.json` — consumidor novo, inativo e `dry_run=true`, com allowlist/cutoff obrigatórios, join por `events_normalized`, consulta somente-leitura e relatório; não contém `Execute Workflow` nem nó HTTP.
-- `n8n/acceptance/imp215_contract_harness.py` — harness local de contrato com testes negativos de cutoff, allowlist, origem, terminalidade e limite de tentativas, além de preservação estrutural dos builders/retries.
+- `n8n/workflows/IMP-215-scheduled-conversion-outbox-consumer.json` — consumidor novo, inativo, `dry_run=true` e `dispatch_enabled=false`, com allowlist/cutoff obrigatórios, claim `UPDATE ... RETURNING` com `FOR UPDATE SKIP LOCKED`, roteamento por plataforma e `Execute Workflow` guardado; não executado.
+- `n8n/acceptance/imp215_contract_harness.py` — harness local de contrato com RED/GREEN para claim, lease, protected closure, zero-row/stale-result guards, cutoff, allowlist, origem, terminalidade e limite de tentativas.
 
 O modo agendado não incrementa `attempts` no fechamento (o claim já incrementou) e fecha somente se `status='processing'`, `attempts=claimed_attempt` e lease ainda válido. Resultado velho retorna zero linhas. O caminho `inline` continua usando os predicados e o fechamento/retry do export.
 
 ## 7. Gates que não podem ser provados sem execução n8n
 
-- O SQL de claim transacional (`UPDATE ... RETURNING`) e a concorrência efetiva `SKIP LOCKED` ainda precisam de prova em ambiente seguro; o consumidor versionado permanece somente dry-run até essa prova.
+- O SQL de claim transacional (`UPDATE ... RETURNING`) e a concorrência efetiva `SKIP LOCKED` ainda precisam de prova em ambiente seguro; o consumidor versionado permanece inativo até essa prova.
 - A compatibilidade do estado `processing` com o dispatcher vivo, o timeout real para calibrar o lease de 30 minutos e a resolução dos IDs de `Execute Workflow` precisam ser confirmados por import/execução controlada. Não foram inferidos nem publicados.
 - Não há teste de API Meta/Google, credencial, flag, escrita em staging/produção ou envio real nesta etapa. Esses são gates de ativação, não resultados alegados.
 

@@ -1,0 +1,71 @@
+{
+  "task": "IMP-215",
+  "scope": "first live read-only validation",
+  "live_probe": {
+    "mcp_server": "n8n",
+    "transport": "stdio",
+    "tools_discovered": 11,
+    "base_url": "https://n8n.impulshub.com",
+    "health_api_status_code": 401,
+    "health_api_ok": false,
+    "list_workflows_status_code": 401,
+    "list_workflows_executed": false,
+    "live_workflow_ids": [],
+    "live_exports": [],
+    "blocker": "n8n MCP bridge connected and discovered 11 tools, but the configured API key was rejected by the live API (401 unauthorized). No live workflow listing, lookup, or export was possible."
+  },
+  "versioned_artifacts": [
+    {
+      "file": "n8n/workflows/IMP-215-dispatch-single-meta-claim.json",
+      "name": "IMP-215 - Dispatch Single Meta Conversion - Claim Contract",
+      "id": null,
+      "active": false,
+      "node_count": 11
+    },
+    {
+      "file": "n8n/workflows/IMP-215-dispatch-single-google-claim.json",
+      "name": "IMP-215 - Dispatch Single Google Ads Conversion - Claim Contract",
+      "id": null,
+      "active": false,
+      "node_count": 11
+    },
+    {
+      "file": "n8n/workflows/IMP-215-scheduled-conversion-outbox-consumer.json",
+      "name": "IMP-215 - Scheduled Conversion Outbox Consumer - Claim Lease Dispatch (Inactive)",
+      "id": null,
+      "active": false,
+      "node_count": 10,
+      "dry_run": true,
+      "external_send": false
+    }
+  ],
+  "contract_validation": {
+    "harness": "n8n/acceptance/imp215_contract_harness.py",
+    "result": "6/6 PASS",
+    "checks": [
+      "real source exports present and hashable",
+      "Meta/Google atomic inline claim, lease guards, protected closure, and retry markers preserved",
+      "consumer inactive with dry_run and dispatch kill switch default-off",
+      "claim SQL uses allowlist/cutoff/source/status/attempt guards and SKIP LOCKED",
+      "controlled child dispatch routes by platform without activation",
+      "negative eligibility matrix"
+    ]
+  },
+  "comparison": {
+    "request_builders": "not compared against live workflows because list/get/export were blocked by 401",
+    "retries": "not compared against live workflows because list/get/export were blocked by 401",
+    "divergences": [
+      "No live-versus-versioned divergence can be asserted from the available evidence.",
+      "Live workflow IDs, active flags, updated timestamps, and exported JSONs remain unknown."
+    ]
+  },
+  "safety": {
+    "activated": false,
+    "published": false,
+    "executed": false,
+    "external_dispatch": false,
+    "production_written": false,
+    "credentials_exposed": false
+  },
+  "next_gate": "Refresh/fix the n8n MCP API credential, then repeat read-only list/find/get/export. Only after live identity and workflow mapping are verified should a human approve a controlled fixture claim/closure proof; do not use real rows or external dispatch."
+}
