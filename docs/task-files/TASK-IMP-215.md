@@ -330,3 +330,17 @@ ligar (IMP-219)**.
    (valor/moeda no `ganho`; matriz evento × plataforma). Confirmar a sequência
    (sugerida pela ROADMAP: 217 → 218 antes de 215) para não construir o
    consumidor sobre um payload que vai mudar.
+
+---
+
+## Pacote implementável — verificação read-only e plano mínimo (23/09/2026)
+
+O plano executável, com SQL parametrizado, predicados de claim/lease, arquivos de patch e testes de aceitação, está em `docs/IMP-215-IMPLEMENTATION-PACKAGE.md`.
+
+**Decisão de schema:** não é necessária migration para o claim mínimo. A definição viva aceita `status='processing'`: não há `CHECK`/trigger de status; `attempts`, `next_attempt_at` e `updated_at` já existem e os índices `idx_conversion_outbox_platform_status_next` e `idx_conversion_outbox_status_created` suportam a varredura. A posse é `processing + attempts=claimed_attempt`, com `next_attempt_at` como deadline de lease. Não adicionar coluna/token neste pacote.
+
+**Produção read-only (`mtxnwtqwfagjzkvgsncs`):** 31 colunas; status observados `failed=43`, `pending=512`, `sent=2346`, `skipped=1304`, `processing=0`; constraints somente PK/unicidades relevantes; nenhum trigger de usuário; sem coluna física `source_system`/`client_id`.
+
+**Staging read-only (`nfratueiutxnypbxfnmi`):** mesma estrutura de 31 colunas e ausência de constraint/trigger de status; tabela sem linhas na leitura. Staging tem `ghl_location_id`, `route` e `meta_event_name` como `NOT NULL`, divergência que não bloqueia o claim, mas impede usá-lo como prova de payload completo.
+
+**Limite:** não rebaixar automaticamente lease expirado para `pending` nem reenviar estado externo ambíguo sem token/decisão adicional; marcar `failed` com `claim_lease_expired_external_state_unknown` sem novo HTTP. Nenhum banco, n8n, flag ou evento foi alterado nesta preparação.

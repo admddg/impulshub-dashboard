@@ -1,0 +1,110 @@
+{
+  "name": "IMP-215 - Scheduled Conversion Outbox Consumer - Review Only",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "imp215-schedule",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = { dry_run: true, max_attempts: 3, batch_size: 10, lease_minutes: 30, allowlisted_client_ids: [], cutoff_at_by_client: {} };\nif (!config.allowlisted_client_ids.length) throw new Error('allowlist_required');\nfor (const id of config.allowlisted_client_ids) { if (!config.cutoff_at_by_client[id]) throw new Error('cutoff_required:' + id); }\nreturn [{ json: config }];"
+      },
+      "id": "imp215-config",
+      "name": "Validate Versioned Allowlist and Cutoff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- READ ONLY candidate query. No claim or HTTP occurs while dry_run=true.\nwith cfg(client_id, cutoff_at) as (\n  select * from jsonb_each_text('{{ JSON.stringify($json.cutoff_at_by_client).replaceAll(\"'\", \"''\") }}'::jsonb)\n), candidates as (\n  select co.id, co.platform, co.status, co.attempts, co.created_at, en.client_id, cfg.cutoff_at::timestamptz\n  from public.conversion_outbox co\n  join public.events_normalized en on en.id = co.normalized_event_id\n  join cfg on cfg.client_id::uuid = en.client_id\n  where en.source_system = 'impuls_crm'\n    and en.client_id = any('{{ JSON.stringify($json.allowlisted_client_ids).replaceAll(\"'\", \"''\") }}'::jsonb)::uuid[]\n    and co.status in ('pending', 'failed')\n    and co.created_at >= cfg.cutoff_at::timestamptz\n    and co.next_attempt_at <= now()\n    and co.attempts < {{ $json.max_attempts }}\n  order by co.created_at, co.id\n  limit {{ $json.batch_size }}\n) select * from candidates;"
+      },
+      "id": "imp215-candidates",
+      "name": "Read Eligible Candidates (Dry Run)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(item => item.json);\nreturn [{ json: { dry_run: $('Validate Versioned Allowlist and Cutoff').first().json.dry_run, candidate_count: rows.length, by_platform: rows.reduce((a, r) => { a[r.platform] = (a[r.platform] || 0) + 1; return a; }, {}), sample_ids: rows.slice(0, 10).map(r => r.id), claim_sql_gate: 'disabled until dry_run=false and live n8n gate is approved' } }];"
+      },
+      "id": "imp215-dryrun",
+      "name": "Dry Run Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Versioned Allowlist and Cutoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Versioned Allowlist and Cutoff": {
+      "main": [
+        [
+          {
+            "node": "Read Eligible Candidates (Dry Run)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Eligible Candidates (Dry Run)": {
+      "main": [
+        [
+          {
+            "node": "Dry Run Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": null,
+  "meta": {
+    "imp215": "review-only; derived from real 1.2/1.3 exports",
+    "external_send": false
+  },
+  "id": null
+}
