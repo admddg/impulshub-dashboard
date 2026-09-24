@@ -2,11 +2,13 @@
 """Repository-only IMP-215 contract checks; never connects to n8n or a database."""
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DOWNLOADS = Path(r"C:/Users/caiop/Downloads")
 WORKFLOWS = ROOT / "n8n" / "workflows"
+AUDIT_DOC = ROOT / "docs" / "IMP-215-N8N-1.1-CALLER-AUDIT.md"
 
 
 def wf(name):
@@ -31,6 +33,44 @@ def test_exports_untouched():
         path = DOWNLOADS / name
         assert_true(path.is_file(), f"missing real export: {name}")
         assert_true(len(hashlib.sha256(path.read_bytes()).hexdigest()) == 64, "hash failed")
+
+
+def test_original_11_caller_is_explicitly_audited():
+    """Keep the known gap visible until a versioned copy is authorized."""
+    path = DOWNLOADS / "1.1 - Inbound Events - Normalize + Conversion Router - Observability V2.1 - Meta Attribution Fix.json"
+    assert_true(path.is_file(), "missing real 1.1 export")
+    current = json.loads(path.read_text(encoding="utf-8"))
+    calls = [n for n in current["nodes"] if n["name"] in {
+        "Call 03 - Dispatch Meta Conversion",
+        "Call 04 - Dispatch Google Ads Conversion",
+    }]
+    assert_true(len(calls) == 2, "1.1 dispatcher call count changed")
+    for call in calls:
+        params = call["parameters"]
+        assert_true(params["options"]["waitForSubWorkflow"] is False, f"{call['name']}: fire-and-forget changed")
+        assert_true(params["workflowInputs"]["value"] == {}, f"{call['name']}: original export unexpectedly changed")
+    audit = AUDIT_DOC.read_text(encoding="utf-8")
+    for token in ("não passa", "outbox_id", "dispatch_mode=inline", "corrida", "160709ade06752d2c76d96d88ce4409013ebeecf55dd63f98cc83495167d9111"):
+        assert_true(token in audit, f"1.1 audit missing: {token}")
+
+
+def test_versioned_11_inline_copy_has_explicit_contract():
+    current = wf("IMP-215-1.1-inbound-events-inline-contract.json")
+    assert_true(current["active"] is False, "versioned 1.1 copy must remain inactive")
+    calls = {n["name"]: n for n in current["nodes"] if n["name"] in {
+        "Call 03 - Dispatch Meta Conversion",
+        "Call 04 - Dispatch Google Ads Conversion",
+    }}
+    assert_true(len(calls) == 2, "versioned 1.1 copy must contain both dispatch calls")
+    for name, call in calls.items():
+        params = call["parameters"]
+        assert_true(params["options"]["waitForSubWorkflow"] is False, f"{name}: fire-and-forget changed")
+        assert_true(params["workflowInputs"]["value"] == {
+            "outbox_id": "={{ $json.conversion_outbox_id }}",
+            "dispatch_mode": "inline",
+        }, f"{name}: inline input contract missing")
+    assert_true(calls["Call 03 - Dispatch Meta Conversion"]["parameters"]["workflowId"]["value"] == "GuJOyCaF93i7ps8l", "Meta child ID mismatch")
+    assert_true(calls["Call 04 - Dispatch Google Ads Conversion"]["parameters"]["workflowId"]["value"] == "VLzVbZaFqeKa0JJr", "Google child ID mismatch")
 
 
 def test_dispatcher_guards_and_preservation():
@@ -120,7 +160,88 @@ def test_negative_matrix():
         assert_true(not eligible(row), f"negative guard leaked: {key}={value}")
 
 
+@dataclass
+class SyntheticOutbox:
+    """Small deterministic model of the guarded SQL contract.
+
+    This is deliberately not a database adapter.  Each method is one serialized
+    SQL transaction boundary, and the clock is injected so the race scenarios
+    are reproducible without sleeps, threads, credentials, or network access.
+    """
+
+    status: str = "pending"
+    attempts: int = 0
+    lease_until: int = 0
+    lease_seconds: int = 10
+    response: str | None = None
+    last_error: str | None = None
+
+    def claim(self, now: int, expected_status: str = "pending"):
+        if self.status != expected_status or self.lease_until > now or self.attempts >= 4:
+            return None
+        self.status = "processing"
+        self.attempts += 1
+        self.lease_until = now + self.lease_seconds
+        return self.attempts
+
+    def scheduled_read(self, now: int, claimed_attempt: int):
+        if (self.status == "processing" and self.attempts == claimed_attempt
+                and self.lease_until > now):
+            return {"claimed_attempt": claimed_attempt}
+        return None
+
+    def close(self, claimed_attempt: int, computed_status: str, response: str):
+        # Mirrors UPDATE ... WHERE status='processing' AND attempts=:claimed_attempt.
+        if self.status != "processing" or self.attempts != claimed_attempt:
+            return 0
+        self.status = computed_status
+        self.response = response
+        return 1
+
+    def recover_expired(self, now: int):
+        if self.status == "processing" and self.lease_until <= now:
+            self.status = "failed"
+            self.last_error = "claim_lease_expired_external_state_unknown"
+            return 1
+        return 0
+
+
+def test_deterministic_concurrent_claims_increment_once():
+    row = SyntheticOutbox()
+    first = row.claim(now=100)
+    second = row.claim(now=100)
+    assert_true(first == 1, "first contender did not receive attempt 1")
+    assert_true(second is None, "second contender also claimed the row")
+    assert_true(row.attempts == 1 and row.status == "processing", "claim was not unique")
+
+
+def test_lease_expiry_closes_without_automatic_http_retry():
+    row = SyntheticOutbox()
+    claimed = row.claim(now=100)
+    assert_true(claimed == 1, "lease fixture was not claimed")
+    assert_true(row.scheduled_read(now=110, claimed_attempt=claimed) is None, "expired lease remained dispatchable")
+    assert_true(row.recover_expired(now=110) == 1, "expired lease was not recovered")
+    assert_true(row.status == "failed", "expired lease was not terminalized")
+    assert_true(row.last_error == "claim_lease_expired_external_state_unknown", "wrong expiry reason")
+    assert_true(row.attempts == 1, "lease recovery incremented attempts")
+
+
+def test_stale_response_cannot_close_new_attempt():
+    row = SyntheticOutbox()
+    old_attempt = row.claim(now=100)
+    assert_true(old_attempt == 1, "old attempt was not claimed")
+    assert_true(row.recover_expired(now=110) == 1, "old lease did not expire")
+    # Re-drive is explicit in the model; expiry itself never retries.
+    row.status = "pending"
+    new_attempt = row.claim(now=111)
+    assert_true(new_attempt == 2, "explicit re-drive did not create attempt 2")
+    assert_true(row.close(old_attempt, "sent", "stale-response") == 0, "stale response closed new attempt")
+    assert_true(row.status == "processing" and row.attempts == 2, "stale response changed current ownership")
+    assert_true(row.close(new_attempt, "sent", "current-response") == 1, "current response did not close")
+    assert_true(row.status == "sent" and row.response == "current-response", "current close result is wrong")
+
+
 if __name__ == "__main__":
-    for test in (test_exports_untouched, test_dispatcher_guards_and_preservation, test_consumer_is_closed_by_default, test_claim_dispatch_slice_is_present_but_killed, test_dispatcher_claim_and_protected_closure, test_negative_matrix):
+    for test in (test_exports_untouched, test_original_11_caller_is_explicitly_audited, test_versioned_11_inline_copy_has_explicit_contract, test_dispatcher_guards_and_preservation, test_consumer_is_closed_by_default, test_claim_dispatch_slice_is_present_but_killed, test_dispatcher_claim_and_protected_closure, test_negative_matrix, test_deterministic_concurrent_claims_increment_once, test_lease_expiry_closes_without_automatic_http_retry, test_stale_response_cannot_close_new_attempt):
         test()
         print(f"PASS {test.__name__}")

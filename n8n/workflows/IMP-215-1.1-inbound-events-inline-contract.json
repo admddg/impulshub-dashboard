@@ -1,0 +1,681 @@
+{
+  "name": "1.1 - Inbound Events - Normalize + Conversion Router - Observability V2.1 - Meta Attribution Fix - IMP-215 Inline Contract",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "inbound-events",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2448,
+        512
+      ],
+      "id": "fd73e7fa-0e2e-4d62-b7d5-e9565504aecb",
+      "name": "Webhook",
+      "webhookId": "b510b815-e0f1-454c-a2c1-682738f91c4f"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst headers = $json.headers || {};\nconst query = $json.query || {};\nconst params = $json.params || {};\n\nconst customData = body.customData || body.custom_data || {};\nconst location = body.location || {};\nconst workflow = body.workflow || {};\nconst user = body.user || {};\n\nfunction pick(...values) {\n  return values.find(value => value !== undefined && value !== null && value !== '') || null;\n}\n\nfunction pickObject(...values) {\n  return values.find(value => value && typeof value === 'object' && !Array.isArray(value)) || {};\n}\n\nfunction cleanUrlValue(value) {\n  if (value === undefined || value === null) return null;\n\n  const text = String(value).trim();\n\n  return text || null;\n}\n\nfunction getUrlParam(urls, aliases) {\n  const aliasSet = new Set(\n    aliases.map(alias => String(alias).trim().toLowerCase())\n  );\n\n  function safeDecode(value) {\n    const text = String(value ?? '').replace(/\\+/g, ' ');\n\n    try {\n      return decodeURIComponent(text);\n    } catch (error) {\n      return text;\n    }\n  }\n\n  for (const rawUrl of urls) {\n    const cleanedUrl = typeof cleanUrlValue === 'function'\n      ? cleanUrlValue(rawUrl)\n      : cleanText(rawUrl);\n\n    if (!cleanedUrl) continue;\n\n    // Parser manual para funcionar no sandbox do Code node do n8n,\n    // sem depender das classes globais URL ou URLSearchParams.\n    let queryString = String(cleanedUrl).replace(/&amp;/gi, '&');\n\n    const questionMarkIndex = queryString.indexOf('?');\n\n    if (questionMarkIndex >= 0) {\n      queryString = queryString.slice(questionMarkIndex + 1);\n    }\n\n    const hashIndex = queryString.indexOf('#');\n\n    if (hashIndex >= 0) {\n      queryString = queryString.slice(0, hashIndex);\n    }\n\n    for (const pair of queryString.split('&')) {\n      if (!pair) continue;\n\n      const equalsIndex = pair.indexOf('=');\n\n      const rawKey = equalsIndex >= 0\n        ? pair.slice(0, equalsIndex)\n        : pair;\n\n      const rawValue = equalsIndex >= 0\n        ? pair.slice(equalsIndex + 1)\n        : '';\n\n      const key = safeDecode(rawKey).trim().toLowerCase();\n\n      if (!aliasSet.has(key)) continue;\n\n      const decodedValue = safeDecode(rawValue);\n\n      const cleanedValue = typeof cleanUrlValue === 'function'\n        ? cleanUrlValue(decodedValue)\n        : cleanText(decodedValue);\n\n      if (cleanedValue) return cleanedValue;\n    }\n  }\n\n  return null;\n}\n\nconst contact = body.contact || {};\nconst attributionSource = pickObject(\n  contact.attributionSource,\n  contact.attribution_source,\n  body.attributionSource,\n  body.attribution_source,\n  customData.attributionSource,\n  customData.attribution_source\n);\nconst lastAttributionSource = pickObject(\n  contact.lastAttributionSource,\n  contact.last_attribution_source,\n  body.lastAttributionSource,\n  body.last_attribution_source,\n  customData.lastAttributionSource,\n  customData.last_attribution_source\n);\n\nconst attributionUrls = [\n  attributionSource.url,\n  attributionSource.sourceUrl,\n  attributionSource.source_url,\n  lastAttributionSource.url,\n  lastAttributionSource.sourceUrl,\n  lastAttributionSource.source_url,\n  body.sourceUrl,\n  body.source_url,\n  body.source?.url,\n  customData.sourceUrl,\n  customData.source_url\n];\n\nconst googleCampaignIdFromUrl = getUrlParam(\n  attributionUrls,\n  ['campaignid', 'campaign_id', 'campaignId']\n);\n\nconst googleAdgroupIdFromUrl = getUrlParam(\n  attributionUrls,\n  ['adgroupid', 'ad_group_id', 'adgroup_id', 'adGroupId']\n);\n\nconst googleAdIdFromUrl = getUrlParam(\n  attributionUrls,\n  ['adid', 'ad_id', 'creative', 'creative_id']\n);\n\nconst fbclidFromUrl = getUrlParam(attributionUrls, ['fbclid']);\nconst gclidFromUrl = getUrlParam(attributionUrls, ['gclid']);\nconst gbraidFromUrl = getUrlParam(attributionUrls, ['gbraid']);\nconst wbraidFromUrl = getUrlParam(attributionUrls, ['wbraid']);\n\nfunction normalizePhone(phone) {\n  if (!phone) return null;\n  return String(phone).replace(/\\D/g, '');\n}\n\nfunction deepClone(obj) {\n  return JSON.parse(JSON.stringify(obj || {}));\n}\n\nfunction normalizeText(value) {\n  if (!value) return null;\n\n  return String(value)\n    .trim()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .replace(/\\s+/g, '_')\n    .replace(/-/g, '_')\n    .toLowerCase();\n}\n\nfunction normalizeEventCode(value) {\n  const normalized = normalizeText(value);\n\n  const map = {\n    lead: 'lead',\n\n    primeira: 'primeira_conversa',\n    primeira_conversa: 'primeira_conversa',\n    primeira_conversa_realizada: 'primeira_conversa',\n    primeira_abordagem: 'primeira_conversa',\n\n    agendado: 'agendado',\n    avaliacao: 'agendado',\n    avaliação: 'agendado',\n\n    ganho: 'ganho',\n    won: 'ganho',\n    fechado: 'ganho',\n    venda: 'ganho',\n\n    perdido: 'perdido',\n    lost: 'perdido',\n    perda: 'perdido'\n  };\n\n  return map[normalized] || normalized || 'raw_event';\n}\n\nfunction normalizeStatus(eventCode, rawStatus) {\n  if (eventCode === 'ganho') return 'won';\n  if (eventCode === 'perdido') return 'lost';\n  if (eventCode === 'primeira_conversa') return 'open';\n  if (eventCode === 'agendado') return 'open';\n  if (eventCode === 'lead') return pick(rawStatus, 'open');\n\n  return rawStatus || null;\n}\n\nfunction redactSensitiveFields(obj) {\n  const sensitiveKeys = [\n    'meta_token',\n    'access_token',\n    'token',\n    'api_key',\n    'api_secret',\n    'ga4_api_secret',\n    'password',\n    'secret',\n    'authorization',\n    'developer_token',\n    'refresh_token'\n  ];\n\n  if (Array.isArray(obj)) {\n    return obj.map(redactSensitiveFields);\n  }\n\n  if (obj && typeof obj === 'object') {\n    const clean = {};\n\n    for (const [key, value] of Object.entries(obj)) {\n      const normalizedKey = key.toLowerCase();\n\n      if (sensitiveKeys.some(sensitive => normalizedKey.includes(sensitive))) {\n        clean[key] = '[REDACTED]';\n      } else {\n        clean[key] = redactSensitiveFields(value);\n      }\n    }\n\n    return clean;\n  }\n\n  return obj;\n}\n\nconst sanitizedBody = redactSensitiveFields(deepClone(body));\nconst sanitizedHeaders = redactSensitiveFields(deepClone(headers));\n\nconst sourceSystem = pick(\n  body.source_system,\n  customData.source_system,\n  'ghl'\n);\n\nconst rawEventName = pick(\n  customData.nome_evento_crm,\n  body.nome_evento_crm,\n  body.event_type,\n  body.eventType,\n  body.type,\n  body.event,\n  'raw_event'\n);\n\nconst eventCode = normalizeEventCode(rawEventName);\n\nconst locationId = pick(\n  body.location_id,\n  body.locationId,\n  body.ghl_location_id,\n  customData.location_id,\n  customData.locationId,\n  customData.ghl_location_id,\n  location.id\n);\n\nconst locationName = pick(\n  body.location_name,\n  body.locationName,\n  customData.location_name,\n  customData.locationName,\n  location.name\n);\n\n/**\n * DECISÃO DO MODELO:\n * contact_id é a chave principal da jornada.\n * Não usamos body.id como fallback de contact_id,\n * porque nos eventos de oportunidade o body.id pode ser opportunity_id.\n */\nconst contactId = pick(\n  customData.contact_id,\n  customData.contactId,\n  body.contact_id,\n  body.contactId,\n  body.contact?.id\n);\n\n/**\n * opportunity_id é complementar.\n * Pode usar body.id, mas não entra como contact_id.\n */\nconst opportunityId = pick(\n  body.opportunity_id,\n  body.opportunityId,\n  body.opportunity?.id,\n  customData.opportunity_id,\n  customData.opportunityId,\n  body.id\n);\n\nconst pipelineId = pick(\n  body.pipeline_id,\n  body.pipelineId,\n  body.opportunity?.pipeline_id,\n  body.opportunity?.pipelineId,\n  customData.pipeline_id,\n  customData.pipelineId\n);\n\nconst pipelineName = pick(\n  body.pipeline_name,\n  body.pipelineName,\n  body.opportunity?.pipeline_name,\n  body.opportunity?.pipelineName,\n  customData.pipeline_name,\n  customData.pipelineName\n);\n\nconst pipelineStage = pick(\n  body.pipeline_stage,\n  body.pipleline_stage,\n  body.pipelineStage,\n  body.opportunity?.pipeline_stage,\n  body.opportunity?.pipleline_stage,\n  body.opportunity?.pipelineStage,\n  customData.pipeline_stage,\n  customData.pipleline_stage,\n  customData.pipelineStage\n);\n\nconst rawStatus = pick(\n  body.status,\n  body.opportunity?.status,\n  customData.status\n);\n\nconst status = normalizeStatus(eventCode, rawStatus);\n\nconst phoneRaw = pick(\n  body.phone,\n  body.phone_number,\n  body.phoneNumber,\n  body.phone_raw,\n  customData.phone_raw,\n  customData.phone,\n  customData.phone_number,\n  body.contact?.phone,\n  body.contact?.phone_number,\n  body.contact?.phoneNumber\n);\n\nconst email = pick(\n  body.email,\n  body.email_address,\n  body.emailAddress,\n  customData.email,\n  customData.email_address,\n  body.contact?.email\n);\n\nconst normalizedPhone = normalizePhone(phoneRaw);\n\nconst firstName = pick(\n  body.first_name,\n  body.firstName,\n  customData.first_name,\n  customData.firstName,\n  body.contact?.first_name,\n  body.contact?.firstName\n);\n\nconst lastName = pick(\n  body.last_name,\n  body.lastName,\n  customData.last_name,\n  customData.lastName,\n  body.contact?.last_name,\n  body.contact?.lastName\n);\n\nconst fullName = pick(\n  body.full_name,\n  body.fullName,\n  customData.full_name,\n  customData.fullName,\n  body.contact?.full_name,\n  body.contact?.fullName\n);\n\nconst valorGanho = pick(\n  customData.valor_ganho,\n  customData.closed_value,\n  customData.value,\n  body.valor_ganho,\n  body.closed_value,\n  body.value,\n  body.monetary_value,\n  body.monetaryValue,\n  body.opportunity?.monetary_value,\n  body.opportunity?.monetaryValue\n);\n\nconst formaGanho = pick(\n  customData.forma_ganho,\n  customData.forma_pagamento_ganho,\n  customData.payment_method,\n  customData.forma_pagamento,\n  body.forma_ganho,\n  body.forma_pagamento_ganho,\n  body.payment_method,\n  body.forma_pagamento\n);\n\nconst produtoServico = pick(\n  customData.produto_servico,\n  customData.produto_serviço,\n  customData.produto_servico_ganho,\n  customData.produto_serviço_ganho,\n  customData['produto/serviço_ganho'],\n  customData['produto/servico_ganho'],\n  customData.product_service,\n  customData.service_product,\n\n  body.produto_servico,\n  body.produto_serviço,\n  body.produto_servico_ganho,\n  body.produto_serviço_ganho,\n  body['produto/serviço_ganho'],\n  body['produto/servico_ganho'],\n  body.product_service,\n  body.service_product,\n\n  // fallback legado\n  customData.procedimento_ganho,\n  customData.procedimento_fechado,\n  customData.procedure_closed,\n  customData.procedimento,\n  body.procedimento_ganho,\n  body.procedimento_fechado,\n  body.procedure_closed,\n  body.procedimento\n);\n\nconst categoriaProdutoServico = pick(\n  customData.categoria_produto_servico,\n  customData.categoria_produto_serviço,\n  customData.categoria_ganho,\n  customData.categoria,\n  customData.product_category,\n  customData.service_category,\n\n  body.categoria_produto_servico,\n  body.categoria_produto_serviço,\n  body.categoria_ganho,\n  body.categoria,\n  body.product_category,\n  body.service_category\n);\n\nconst procedimentoGanho = pick(\n  customData.procedimento_ganho,\n  customData.procedimento_fechado,\n  customData.procedure_closed,\n  customData.procedimento,\n  body.procedimento_ganho,\n  body.procedimento_fechado,\n  body.procedure_closed,\n  body.procedimento,\n\n  // fallback novo para compatibilidade com dashboards/queries antigos\n  produtoServico\n);\n\nconst motivoPerdaCategoria = pick(\n  customData.motivo_perda_categoria,\n  customData.loss_reason_category,\n  body.motivo_perda_categoria,\n  body.loss_reason_category\n);\n\nconst motivoPerdaDetalhe = pick(\n  customData.motivo_perda_detalhe,\n  customData.loss_reason,\n  body.motivo_perda_detalhe,\n  body.loss_reason\n);\n\nconst normalized = {\n  source_system: sourceSystem,\n\n  event_type: eventCode,\n  event_code: eventCode,\n  event_name: rawEventName,\n\n  location_id: locationId,\n  ghl_location_id: locationId,\n  location_name: locationName,\n\n  contact_id: contactId,\n  opportunity_id: opportunityId,\n\n  pipeline_id: pipelineId,\n  pipeline_name: pipelineName,\n  pipeline_stage: pipelineStage,\n  status,\n\n  phone: normalizedPhone,\n  phone_raw: phoneRaw,\n  email,\n\n  full_name: fullName,\n  first_name: firstName,\n  last_name: lastName,\n  tags: body.tags || null,\n  contact_type: body.contact_type || body.contactType || null,\n  date_created: body.date_created || body.dateCreated || null,\n\n  lead_origem: pick(body.lead_origem, customData.lead_origem),\n  lead_entrada: pick(body.lead_entrada, customData.lead_entrada),\n  lead_agencias: pick(body.lead_agencias, customData.lead_agencias),\n\n  utm_source: pick(\n    body.utm_source,\n    body.utmSource,\n    customData.utm_source,\n    customData.utmSource,\n    attributionSource.utmSource,\n    attributionSource.utm_source,\n    lastAttributionSource.utmSource,\n    lastAttributionSource.utm_source,\n    getUrlParam(attributionUrls, ['utm_source'])\n  ),\n  utm_medium: pick(\n    body.utm_medium,\n    body.utmMedium,\n    customData.utm_medium,\n    customData.utmMedium,\n    attributionSource.utmMedium,\n    attributionSource.utm_medium,\n    lastAttributionSource.utmMedium,\n    lastAttributionSource.utm_medium,\n    getUrlParam(attributionUrls, ['utm_medium'])\n  ),\n  utm_campaign: pick(\n    body.utm_campaign,\n    body.utmCampaign,\n    customData.utm_campaign,\n    customData.utmCampaign,\n    attributionSource.campaign,\n    attributionSource.utmCampaign,\n    attributionSource.utm_campaign,\n    lastAttributionSource.campaign,\n    lastAttributionSource.utmCampaign,\n    lastAttributionSource.utm_campaign,\n    getUrlParam(attributionUrls, ['utm_campaign'])\n  ),\n  utm_content: pick(\n    body.utm_content,\n    body.utmContent,\n    customData.utm_content,\n    customData.utmContent,\n    attributionSource.utmContent,\n    attributionSource.utm_content,\n    lastAttributionSource.utmContent,\n    lastAttributionSource.utm_content,\n    getUrlParam(attributionUrls, ['utm_content'])\n  ),\n  utm_term: pick(\n    body.utm_term,\n    body.utmTerm,\n    customData.utm_term,\n    customData.utmTerm,\n    attributionSource.utmTerm,\n    attributionSource.utm_term,\n    lastAttributionSource.utmTerm,\n    lastAttributionSource.utm_term,\n    getUrlParam(attributionUrls, ['utm_term'])\n  ),\n\n  conversion_source: pick(body.conversionSource, customData.conversionSource),\n  entry_point_conversion_source: pick(body.entryPointConversionSource, customData.entryPointConversionSource),\n  entry_point_conversion_app: pick(body.entryPointConversionApp, customData.entryPointConversionApp),\n\n  source_type: pick(\n    body.sourceType,\n    customData.sourceType,\n    attributionSource.sourceType,\n    attributionSource.source_type,\n    attributionSource.type,\n    lastAttributionSource.sourceType,\n    lastAttributionSource.source_type,\n    lastAttributionSource.type\n  ),\n\n  // Meta Lead Ads attribution fix:\n  // for native forms, GHL often sends customData.sourceId empty on the lead event,\n  // but contact.attributionSource.adId is already available.\n  // Keep customData/sourceId as final fallback for legacy flows.\n  source_id: pick(\n    attributionSource.adId,\n    attributionSource.ad_id,\n    attributionSource.adID,\n    lastAttributionSource.adId,\n    lastAttributionSource.ad_id,\n    lastAttributionSource.adID,\n    body.sourceId,\n    customData.sourceId\n  ),\n\n  source_url: pick(\n    body.sourceUrl,\n    customData.sourceUrl,\n    body.source?.url,\n    attributionSource.url,\n    attributionSource.sourceUrl,\n    attributionSource.source_url,\n    lastAttributionSource.url,\n    lastAttributionSource.sourceUrl,\n    lastAttributionSource.source_url\n  ),\n  source_ads: pick(body.sourceAds, customData.sourceAds),\n\n  meta_attribution: {\n    attribution_source_ad_id: pick(attributionSource.adId, attributionSource.ad_id, attributionSource.adID),\n    last_attribution_source_ad_id: pick(lastAttributionSource.adId, lastAttributionSource.ad_id, lastAttributionSource.adID),\n    attribution_source_adset_id: pick(attributionSource.adSetId, attributionSource.adsetId, attributionSource.ad_set_id, attributionSource.adset_id),\n    last_attribution_source_adset_id: pick(lastAttributionSource.adSetId, lastAttributionSource.adsetId, lastAttributionSource.ad_set_id, lastAttributionSource.adset_id),\n    attribution_source_campaign_id: pick(attributionSource.campaignId, attributionSource.campaign_id),\n    last_attribution_source_campaign_id: pick(lastAttributionSource.campaignId, lastAttributionSource.campaign_id)\n  },\n\n  ctwa_clid: pick(body.ctwaClid, customData.ctwaClid),\n  ctwa_payload: pick(body.ctwaPayload, body.ctwapayload, customData.ctwaPayload, customData.ctwapayload),\n\n  fbp: pick(body.fbp, customData.fbp),\n  fbc: pick(body.fbc, customData.fbc),\n  fbclid: pick(\n    body.fbclid,\n    customData.fbclid,\n    attributionSource.fbclid,\n    lastAttributionSource.fbclid,\n    fbclidFromUrl\n  ),\n  gclid: pick(\n    body.gclid,\n    body.google_click_id,\n    body.googleClickId,\n    body['Google Click ID'],\n    customData.gclid,\n    customData.google_click_id,\n    customData.googleClickId,\n    customData['Google Click ID'],\n    attributionSource.gclid,\n    lastAttributionSource.gclid,\n    gclidFromUrl\n  ),\n  gbraid: pick(\n    body.gbraid,\n    customData.gbraid,\n    attributionSource.gbraid,\n    lastAttributionSource.gbraid,\n    gbraidFromUrl\n  ),\n  wbraid: pick(\n    body.wbraid,\n    customData.wbraid,\n    attributionSource.wbraid,\n    lastAttributionSource.wbraid,\n    wbraidFromUrl\n  ),\n\n  // Google Ads ValueTrack:\n  // campos explícitos primeiro; URL de atribuição do GHL como fallback seguro.\n  google_campaign_id: pick(\n    body.google_campaign_id,\n    body.googleCampaignId,\n    body.campaignid,\n    body.campaign_id,\n    customData.google_campaign_id,\n    customData.googleCampaignId,\n    customData.campaignid,\n    customData.campaign_id,\n    attributionSource.campaignId,\n    attributionSource.campaign_id,\n    lastAttributionSource.campaignId,\n    lastAttributionSource.campaign_id,\n    googleCampaignIdFromUrl\n  ),\n  google_adgroup_id: pick(\n    body.google_adgroup_id,\n    body.googleAdgroupId,\n    body.adgroupid,\n    body.adgroup_id,\n    customData.google_adgroup_id,\n    customData.googleAdgroupId,\n    customData.adgroupid,\n    customData.adgroup_id,\n    attributionSource.adGroupId,\n    attributionSource.adgroupId,\n    attributionSource.ad_group_id,\n    lastAttributionSource.adGroupId,\n    lastAttributionSource.adgroupId,\n    lastAttributionSource.ad_group_id,\n    googleAdgroupIdFromUrl\n  ),\n  google_ad_id: pick(\n    body.google_ad_id,\n    body.googleAdId,\n    body.adid,\n    body.ad_id,\n    body.creative,\n    body.creative_id,\n    customData.google_ad_id,\n    customData.googleAdId,\n    customData.adid,\n    customData.ad_id,\n    customData.creative,\n    customData.creative_id,\n    attributionSource.adId,\n    attributionSource.ad_id,\n    lastAttributionSource.adId,\n    lastAttributionSource.ad_id,\n    googleAdIdFromUrl\n  ),\n  google_keyword: pick(\n    body.google_keyword,\n    body.googleKeyword,\n    body.keyword,\n    customData.google_keyword,\n    customData.googleKeyword,\n    customData.keyword\n  ),\n\n  valor_ganho: valorGanho,\n  forma_ganho: formaGanho,\n  produto_servico: produtoServico,\n  categoria_produto_servico: categoriaProdutoServico,\n\n  // legado: manter temporariamente para compatibilidade\n  procedimento_ganho: procedimentoGanho,\n\n  motivo_perda_categoria: motivoPerdaCategoria,\n  motivo_perda_detalhe: motivoPerdaDetalhe,\n\n  workflow_id: workflow.id || null,\n  workflow_name: workflow.name || null,\n\n  assigned_user_first_name: user.firstName || null,\n  assigned_user_last_name: user.lastName || null,\n  assigned_user_email: user.email || null\n};\n\nreturn [\n  {\n    json: {\n      received_at: new Date().toISOString(),\n\n      source_system: sourceSystem,\n      event_type: eventCode,\n\n      location_id: locationId,\n      location_name: locationName,\n\n      contact_id: contactId,\n      phone: normalizedPhone,\n      email,\n\n      request_method: $json.method || 'POST',\n      request_path: $json.path || '/webhook/inbound-events',\n      request_headers: sanitizedHeaders,\n      request_query: query,\n      request_body: sanitizedBody,\n\n      payload: {\n        body: sanitizedBody,\n        headers: sanitizedHeaders,\n        query,\n        params,\n        normalized\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2224,
+        512
+      ],
+      "id": "6f2bf06a-6f7d-4e8e-b70d-31426c29cade",
+      "name": "Normalize Raw Event"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.events_raw (\n  received_at,\n  source_system,\n  event_type,\n  location_id,\n  location_name,\n  contact_id,\n  phone,\n  email,\n  request_method,\n  request_path,\n  request_headers,\n  request_query,\n  request_body,\n  payload\n)\nvalues (\n  '{{ $json.received_at }}'::timestamptz,\n  NULLIF('{{ String($json.source_system ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.event_type ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.location_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.location_name ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.contact_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.phone ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.email ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.request_method ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.request_path ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  '{{ JSON.stringify($json.request_headers ?? {}).replaceAll(\"'\", \"''\") }}'::jsonb,\n  '{{ JSON.stringify($json.request_query ?? {}).replaceAll(\"'\", \"''\") }}'::jsonb,\n  '{{ JSON.stringify($json.request_body ?? {}).replaceAll(\"'\", \"''\") }}'::jsonb,\n  '{{ JSON.stringify($json.payload ?? {}).replaceAll(\"'\", \"''\") }}'::jsonb\n)\nreturning\n  id,\n  received_at,\n  source_system,\n  event_type,\n  location_id,\n  location_name,\n  contact_id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2000,
+        512
+      ],
+      "id": "31e6827a-06e5-4065-bb81-094469642ca3",
+      "name": "Insert Raw Event",
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with resolved as (\n  select\n    er.id as raw_event_id,\n    er.received_at,\n    er.source_system,\n    er.event_type,\n    er.location_id,\n    er.location_name,\n    er.contact_id,\n    er.phone,\n    er.email,\n    er.payload,\n\n    cb.id as client_id,\n    cb.client_name,\n    cb.ghl_location_id,\n    cb.status as client_status,\n    cb.timezone\n\n  from public.events_raw er\n\n  left join public.clients_base cb\n    on cb.ghl_location_id = coalesce(\n      er.payload->'normalized'->>'ghl_location_id',\n      er.payload->'normalized'->>'location_id',\n      er.location_id\n    )\n\n  where er.id = '{{ $(\"Insert Raw Event\").first().json.id }}'::uuid\n  limit 1\n),\nlog_update as (\n  update public.workflow_execution_logs l\n  set\n    client_id = r.client_id,\n    client_name = r.client_name,\n    ghl_location_id = coalesce(r.ghl_location_id, r.location_id),\n    stage = case\n      when r.client_id is not null then 'client_resolved'\n      else 'client_not_found'\n    end,\n    metadata = coalesce(l.metadata, '{}'::jsonb) || jsonb_build_object(\n      'client_found', r.client_id is not null,\n      'client_id', r.client_id,\n      'client_name', r.client_name,\n      'ghl_location_id', coalesce(r.ghl_location_id, r.location_id)\n    ),\n    stages = coalesce(l.stages, '{}'::jsonb) || jsonb_build_object(\n      'client_resolution', jsonb_build_object(\n        'status', case when r.client_id is not null then 'resolved' else 'not_found' end,\n        'client_id', r.client_id,\n        'client_name', r.client_name,\n        'at', now()\n      )\n    )\n  from resolved r\n  where l.id = NULLIF(\n    '{{ String($(\"Log Abertura 1.1\").first().json.workflow_log_id ?? \"\").replaceAll(\"'\", \"''\") }}',\n    ''\n  )::uuid\n    and l.status = 'running'\n  returning l.id\n)\nselect r.*\nfrom resolved r\nleft join log_update lu on true\nlimit 1;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1664,
+        512
+      ],
+      "id": "bc7b223e-7526-4f6f-a484-706e3f43f034",
+      "name": "Get Raw Event + Client",
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $json;\nconst payload = row.payload || {};\nconst normalized = payload.normalized || {};\nconst rawBody = payload.body || {};\nconst rawCustomData = rawBody.customData || rawBody.custom_data || {};\nconst rawContact = rawBody.contact || {};\n\nfunction pick(...values) {\n  return values.find(value => value !== undefined && value !== null && value !== '') || null;\n}\n\nfunction pickObject(...values) {\n  return values.find(value => value && typeof value === 'object' && !Array.isArray(value)) || {};\n}\n\nconst attributionSource = pickObject(\n  rawContact.attributionSource,\n  rawContact.attribution_source,\n  rawBody.attributionSource,\n  rawBody.attribution_source,\n  rawCustomData.attributionSource,\n  rawCustomData.attribution_source\n);\nconst lastAttributionSource = pickObject(\n  rawContact.lastAttributionSource,\n  rawContact.last_attribution_source,\n  rawBody.lastAttributionSource,\n  rawBody.last_attribution_source,\n  rawCustomData.lastAttributionSource,\n  rawCustomData.last_attribution_source\n);\n\nfunction cleanText(value) {\n  if (value === undefined || value === null) return null;\n\n  const text = String(value).trim();\n\n  const invalidValues = [\n    '',\n    'null',\n    'undefined',\n    'nao identificado',\n    'não identificado',\n    'nao_identificado',\n    'não_identificado',\n    'n/a',\n    'sem informação',\n    'sem informacao'\n  ];\n\n  if (invalidValues.includes(text.toLowerCase())) {\n    return null;\n  }\n\n  return text;\n}\n\n\nfunction getUrlParam(urls, aliases) {\n  const aliasSet = new Set(\n    aliases.map(alias => String(alias).trim().toLowerCase())\n  );\n\n  function safeDecode(value) {\n    const text = String(value ?? '').replace(/\\+/g, ' ');\n\n    try {\n      return decodeURIComponent(text);\n    } catch (error) {\n      return text;\n    }\n  }\n\n  for (const rawUrl of urls) {\n    const cleanedUrl = typeof cleanUrlValue === 'function'\n      ? cleanUrlValue(rawUrl)\n      : cleanText(rawUrl);\n\n    if (!cleanedUrl) continue;\n\n    // Parser manual para funcionar no sandbox do Code node do n8n,\n    // sem depender das classes globais URL ou URLSearchParams.\n    let queryString = String(cleanedUrl).replace(/&amp;/gi, '&');\n\n    const questionMarkIndex = queryString.indexOf('?');\n\n    if (questionMarkIndex >= 0) {\n      queryString = queryString.slice(questionMarkIndex + 1);\n    }\n\n    const hashIndex = queryString.indexOf('#');\n\n    if (hashIndex >= 0) {\n      queryString = queryString.slice(0, hashIndex);\n    }\n\n    for (const pair of queryString.split('&')) {\n      if (!pair) continue;\n\n      const equalsIndex = pair.indexOf('=');\n\n      const rawKey = equalsIndex >= 0\n        ? pair.slice(0, equalsIndex)\n        : pair;\n\n      const rawValue = equalsIndex >= 0\n        ? pair.slice(equalsIndex + 1)\n        : '';\n\n      const key = safeDecode(rawKey).trim().toLowerCase();\n\n      if (!aliasSet.has(key)) continue;\n\n      const decodedValue = safeDecode(rawValue);\n\n      const cleanedValue = typeof cleanUrlValue === 'function'\n        ? cleanUrlValue(decodedValue)\n        : cleanText(decodedValue);\n\n      if (cleanedValue) return cleanedValue;\n    }\n  }\n\n  return null;\n}\n\nconst attributionUrls = [\n  attributionSource.url,\n  attributionSource.sourceUrl,\n  attributionSource.source_url,\n  lastAttributionSource.url,\n  lastAttributionSource.sourceUrl,\n  lastAttributionSource.source_url,\n  normalized.source_url,\n  rawBody.sourceUrl,\n  rawBody.source_url,\n  rawBody.source?.url,\n  rawCustomData.sourceUrl,\n  rawCustomData.source_url\n];\n\nconst sourceUrl = cleanText(pick(...attributionUrls));\n\nconst googleCampaignIdFromUrl = getUrlParam(\n  attributionUrls,\n  ['campaignid', 'campaign_id', 'campaignId']\n);\n\nconst googleAdgroupIdFromUrl = getUrlParam(\n  attributionUrls,\n  ['adgroupid', 'ad_group_id', 'adgroup_id', 'adGroupId']\n);\n\nconst googleAdIdFromUrl = getUrlParam(\n  attributionUrls,\n  ['adid', 'ad_id', 'creative', 'creative_id']\n);\n\nconst fbclidFromUrl = getUrlParam(attributionUrls, ['fbclid']);\nconst gclidFromUrl = getUrlParam(attributionUrls, ['gclid']);\nconst gbraidFromUrl = getUrlParam(attributionUrls, ['gbraid']);\nconst wbraidFromUrl = getUrlParam(attributionUrls, ['wbraid']);\n\nfunction normalizeText(value) {\n  const text = cleanText(value);\n  if (!text) return null;\n\n  return text\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .replace(/\\s+/g, '_')\n    .replace(/-/g, '_')\n    .toLowerCase();\n}\n\nfunction normalizeEventCode(value) {\n  const normalizedText = normalizeText(value);\n\n  const map = {\n    lead: 'lead',\n\n    primeira: 'primeira_conversa',\n    primeira_conversa: 'primeira_conversa',\n    primeira_conversa_realizada: 'primeira_conversa',\n    primeira_abordagem: 'primeira_conversa',\n\n    agendado: 'agendado',\n    avaliacao: 'agendado',\n\n    ganho: 'ganho',\n    won: 'ganho',\n    fechado: 'ganho',\n    venda: 'ganho',\n\n    perdido: 'perdido',\n    lost: 'perdido',\n    perda: 'perdido'\n  };\n\n  return map[normalizedText] || normalizedText || 'raw_event';\n}\n\nfunction normalizeStatus(eventCode, value) {\n  const status = cleanText(value);\n\n  if (eventCode === 'ganho') return 'won';\n  if (eventCode === 'perdido') return 'lost';\n  if (eventCode === 'primeira_conversa') return 'open';\n  if (eventCode === 'agendado') return 'open';\n  if (eventCode === 'lead') return status === 'lead' ? 'open' : (status || 'open');\n\n  return status;\n}\n\nfunction parseMoney(value) {\n  const cleaned = cleanText(value);\n  if (!cleaned) return null;\n\n  const text = String(cleaned)\n    .replace(/[R$\\s]/g, '')\n    .replace(/\\./g, '')\n    .replace(',', '.');\n\n  const number = Number(text);\n\n  if (Number.isNaN(number)) return null;\n\n  return number;\n}\n\n\nfunction parseBoolean(value) {\n  const text = cleanText(value);\n  if (!text) return null;\n\n  const normalized = String(text).trim().toLowerCase();\n\n  if (['true', '1', 'yes', 'sim'].includes(normalized)) return true;\n  if (['false', '0', 'no', 'nao', 'não'].includes(normalized)) return false;\n\n  return null;\n}\n\nconst eventCode = normalizeEventCode(\n  pick(\n    normalized.event_code,\n    normalized.event_type,\n    row.event_type\n  )\n);\n\nconst status = normalizeStatus(\n  eventCode,\n  pick(normalized.status, row.status)\n);\n\nconst clientId = row.client_id || null;\nconst clientFound = Boolean(clientId);\n\nreturn [\n  {\n    json: {\n      raw_event_id: row.raw_event_id,\n      received_at: row.received_at,\n\n      client_found: clientFound,\n      client_id: clientId,\n      client_name: row.client_name || null,\n      client_status: row.client_status || null,\n      timezone: row.timezone || null,\n\n      source_system: cleanText(pick(normalized.source_system, row.source_system, 'ghl')),\n\n      event_code: eventCode,\n      event_name: cleanText(pick(normalized.event_name, row.event_type)),\n\n      ghl_location_id: cleanText(\n        pick(\n          row.ghl_location_id,\n          normalized.ghl_location_id,\n          normalized.location_id,\n          row.location_id\n        )\n      ),\n\n      location_id: cleanText(\n        pick(\n          normalized.location_id,\n          row.location_id\n        )\n      ),\n\n      location_name: cleanText(\n        pick(\n          normalized.location_name,\n          row.location_name\n        )\n      ),\n\n      contact_id: cleanText(\n        pick(\n          normalized.contact_id,\n          row.contact_id\n        )\n      ),\n\n      opportunity_id: cleanText(normalized.opportunity_id),\n\n      pipeline_id: cleanText(normalized.pipeline_id),\n      pipeline_name: cleanText(normalized.pipeline_name),\n      pipeline_stage: cleanText(normalized.pipeline_stage),\n\n      status,\n\n      phone: cleanText(pick(normalized.phone, row.phone)),\n      phone_raw: cleanText(normalized.phone_raw),\n      email: cleanText(pick(normalized.email, row.email)),\n\n      full_name: cleanText(normalized.full_name),\n      first_name: cleanText(normalized.first_name),\n      last_name: cleanText(normalized.last_name),\n\n      lead_origem: cleanText(normalized.lead_origem),\n      lead_entrada: cleanText(normalized.lead_entrada),\n      lead_agencias: cleanText(normalized.lead_agencias),\n\n      utm_source: cleanText(pick(\n        normalized.utm_source, rawBody.utm_source, rawBody.utmSource,\n        rawCustomData.utm_source, rawCustomData.utmSource,\n        attributionSource.utmSource, attributionSource.utm_source,\n        lastAttributionSource.utmSource, lastAttributionSource.utm_source,\n        getUrlParam(attributionUrls, ['utm_source'])\n      )),\n      utm_medium: cleanText(pick(\n        normalized.utm_medium, rawBody.utm_medium, rawBody.utmMedium,\n        rawCustomData.utm_medium, rawCustomData.utmMedium,\n        attributionSource.utmMedium, attributionSource.utm_medium,\n        lastAttributionSource.utmMedium, lastAttributionSource.utm_medium,\n        getUrlParam(attributionUrls, ['utm_medium'])\n      )),\n      utm_campaign: cleanText(pick(\n        normalized.utm_campaign, rawBody.utm_campaign, rawBody.utmCampaign,\n        rawCustomData.utm_campaign, rawCustomData.utmCampaign,\n        attributionSource.campaign, attributionSource.utmCampaign, attributionSource.utm_campaign,\n        lastAttributionSource.campaign, lastAttributionSource.utmCampaign, lastAttributionSource.utm_campaign,\n        getUrlParam(attributionUrls, ['utm_campaign'])\n      )),\n      utm_content: cleanText(pick(\n        normalized.utm_content, rawBody.utm_content, rawBody.utmContent,\n        rawCustomData.utm_content, rawCustomData.utmContent,\n        attributionSource.utmContent, attributionSource.utm_content,\n        lastAttributionSource.utmContent, lastAttributionSource.utm_content,\n        getUrlParam(attributionUrls, ['utm_content'])\n      )),\n      utm_term: cleanText(pick(\n        normalized.utm_term, rawBody.utm_term, rawBody.utmTerm,\n        rawCustomData.utm_term, rawCustomData.utmTerm,\n        attributionSource.utmTerm, attributionSource.utm_term,\n        lastAttributionSource.utmTerm, lastAttributionSource.utm_term,\n        getUrlParam(attributionUrls, ['utm_term'])\n      )),\n\n      conversion_source: cleanText(normalized.conversion_source),\n      entry_point_conversion_source: cleanText(normalized.entry_point_conversion_source),\n      entry_point_conversion_app: cleanText(normalized.entry_point_conversion_app),\n\n      source_type: cleanText(pick(\n        normalized.source_type,\n        rawBody.sourceType,\n        rawCustomData.sourceType,\n        attributionSource.sourceType,\n        attributionSource.source_type,\n        attributionSource.type,\n        lastAttributionSource.sourceType,\n        lastAttributionSource.source_type,\n        lastAttributionSource.type\n      )),\n\n      // Meta Lead Ads attribution fix:\n      // use GHL attributionSource.adId as primary source for source_id/meta_ad_id joins.\n      source_id: cleanText(pick(\n        attributionSource.adId,\n        attributionSource.ad_id,\n        attributionSource.adID,\n        lastAttributionSource.adId,\n        lastAttributionSource.ad_id,\n        lastAttributionSource.adID,\n        normalized.source_id,\n        rawBody.sourceId,\n        rawCustomData.sourceId\n      )),\n\n      source_url: sourceUrl,\n      source_ads: parseBoolean(normalized.source_ads),\n\n      ctwa_clid: cleanText(normalized.ctwa_clid),\n      ctwa_payload: cleanText(normalized.ctwa_payload),\n\n      fbp: cleanText(normalized.fbp),\n      fbc: cleanText(normalized.fbc),\n      fbclid: cleanText(pick(\n        normalized.fbclid,\n        rawBody.fbclid,\n        rawCustomData.fbclid,\n        attributionSource.fbclid,\n        lastAttributionSource.fbclid,\n        fbclidFromUrl\n      )),\n      gclid: cleanText(pick(\n        normalized.gclid,\n        rawBody.gclid,\n        rawBody.google_click_id,\n        rawBody.googleClickId,\n        rawBody['Google Click ID'],\n        rawCustomData.gclid,\n        rawCustomData.google_click_id,\n        rawCustomData.googleClickId,\n        rawCustomData['Google Click ID'],\n        attributionSource.gclid,\n        lastAttributionSource.gclid,\n        gclidFromUrl\n      )),\n      gbraid: cleanText(pick(\n        normalized.gbraid,\n        rawBody.gbraid,\n        rawCustomData.gbraid,\n        attributionSource.gbraid,\n        lastAttributionSource.gbraid,\n        gbraidFromUrl\n      )),\n      wbraid: cleanText(pick(\n        normalized.wbraid,\n        rawBody.wbraid,\n        rawCustomData.wbraid,\n        attributionSource.wbraid,\n        lastAttributionSource.wbraid,\n        wbraidFromUrl\n      )),\n\n      google_campaign_id: cleanText(pick(\n        normalized.google_campaign_id,\n        rawBody.google_campaign_id,\n        rawBody.googleCampaignId,\n        rawBody.campaignid,\n        rawBody.campaign_id,\n        rawCustomData.google_campaign_id,\n        rawCustomData.googleCampaignId,\n        rawCustomData.campaignid,\n        rawCustomData.campaign_id,\n        attributionSource.campaignId,\n        attributionSource.campaign_id,\n        lastAttributionSource.campaignId,\n        lastAttributionSource.campaign_id,\n        googleCampaignIdFromUrl\n      )),\n      google_adgroup_id: cleanText(pick(\n        normalized.google_adgroup_id,\n        rawBody.google_adgroup_id,\n        rawBody.googleAdgroupId,\n        rawBody.adgroupid,\n        rawBody.adgroup_id,\n        rawCustomData.google_adgroup_id,\n        rawCustomData.googleAdgroupId,\n        rawCustomData.adgroupid,\n        rawCustomData.adgroup_id,\n        attributionSource.adGroupId,\n        attributionSource.adgroupId,\n        attributionSource.ad_group_id,\n        lastAttributionSource.adGroupId,\n        lastAttributionSource.adgroupId,\n        lastAttributionSource.ad_group_id,\n        googleAdgroupIdFromUrl\n      )),\n      google_ad_id: cleanText(pick(\n        normalized.google_ad_id,\n        rawBody.google_ad_id,\n        rawBody.googleAdId,\n        rawBody.adid,\n        rawBody.ad_id,\n        rawBody.creative,\n        rawBody.creative_id,\n        rawCustomData.google_ad_id,\n        rawCustomData.googleAdId,\n        rawCustomData.adid,\n        rawCustomData.ad_id,\n        rawCustomData.creative,\n        rawCustomData.creative_id,\n        attributionSource.adId,\n        attributionSource.ad_id,\n        lastAttributionSource.adId,\n        lastAttributionSource.ad_id,\n        googleAdIdFromUrl\n      )),\n      google_keyword: cleanText(normalized.google_keyword),\n\n      valor_ganho: parseMoney(normalized.valor_ganho),\n      forma_ganho: cleanText(normalized.forma_ganho),\n\n      produto_servico: cleanText(\n        pick(\n          normalized.produto_servico,\n          normalized.produto_serviço,\n          normalized.produto_servico_ganho,\n          normalized.produto_serviço_ganho,\n          normalized['produto/serviço_ganho'],\n          normalized['produto/servico_ganho'],\n          normalized.procedimento_ganho\n        )\n      ),\n\n      categoria_produto_servico: cleanText(\n        pick(\n          normalized.categoria_produto_servico,\n          normalized.categoria_produto_serviço,\n          normalized.categoria_ganho,\n          normalized.categoria\n        )\n      ),\n\n      // legado: manter temporariamente para compatibilidade\n      procedimento_ganho: cleanText(\n        pick(\n          normalized.procedimento_ganho,\n          normalized.produto_servico,\n          normalized['produto/serviço_ganho']\n        )\n      ),\n\n      motivo_perda_categoria: cleanText(normalized.motivo_perda_categoria),\n      motivo_perda_detalhe: cleanText(normalized.motivo_perda_detalhe),\n\n      payload\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1440,
+        512
+      ],
+      "id": "e90a6ac3-1a6f-4bcc-9585-989291b5ade0",
+      "name": "Normalize Event"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0ca7ba4e-6fc8-4e1d-8b19-29d8dfb80857",
+              "leftValue": "={{ $json.client_found }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1216,
+        512
+      ],
+      "id": "f5015c6e-7777-4a0d-9761-da02e8f74e6c",
+      "name": "IF Client Found"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with upserted as (\ninsert into public.events_normalized (\n  raw_event_id,\n  received_at,\n  event_datetime,\n  client_id,\n  client_name,\n  source_system,\n  event_code,\n  event_name,\n  ghl_location_id,\n  location_id,\n  location_name,\n  contact_id,\n  opportunity_id,\n  pipeline_id,\n  pipeline_name,\n  pipeline_stage,\n  status,\n  phone,\n  phone_raw,\n  email,\n  full_name,\n  first_name,\n  last_name,\n  lead_origem,\n  lead_entrada,\n  lead_agencias,\n  utm_source,\n  utm_medium,\n  utm_campaign,\n  utm_content,\n  utm_term,\n  conversion_source,\n  entry_point_conversion_source,\n  entry_point_conversion_app,\n  source_type,\n  source_id,\n  source_url,\n  source_ads,\n  ctwa_clid,\n  ctwa_payload,\n  fbp,\n  fbc,\n  fbclid,\n  gclid,\n  gbraid,\n  wbraid,\n  google_campaign_id,\n  google_adgroup_id,\n  google_ad_id,\n  google_keyword,\n  valor_ganho,\n  forma_ganho,\n  produto_servico,\n  categoria_produto_servico,\n  procedimento_ganho,\n  motivo_perda_categoria,\n  motivo_perda_detalhe,\n  payload,\n  created_at,\n  updated_at\n)\nvalues (\n  '{{ $json.raw_event_id }}'::uuid,\n  coalesce(NULLIF('{{ String($json.received_at ?? \"\").replaceAll(\"'\", \"''\") }}', '')::timestamptz, now()),\n  coalesce(NULLIF('{{ String($json.received_at ?? \"\").replaceAll(\"'\", \"''\") }}', '')::timestamptz, now()),\n  NULLIF('{{ String($json.client_id ?? \"\").replaceAll(\"'\", \"''\") }}', '')::uuid,\n  NULLIF('{{ String($json.client_name ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.source_system ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.event_code ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.event_name ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.ghl_location_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.location_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.location_name ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.contact_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.opportunity_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.pipeline_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.pipeline_name ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.pipeline_stage ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.status ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.phone ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.phone_raw ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.email ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.full_name ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.first_name ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.last_name ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.lead_origem ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.lead_entrada ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.lead_agencias ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.utm_source ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.utm_medium ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.utm_campaign ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.utm_content ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.utm_term ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.conversion_source ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.entry_point_conversion_source ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.entry_point_conversion_app ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.source_type ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.source_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.source_url ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  {{ $json.source_ads === true ? 'TRUE' : ($json.source_ads === false ? 'FALSE' : 'NULL') }}::boolean,\n  NULLIF('{{ String($json.ctwa_clid ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.ctwa_payload ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.fbp ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.fbc ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.fbclid ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.gclid ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.gbraid ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.wbraid ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.google_campaign_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.google_adgroup_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.google_ad_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.google_keyword ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  {{ $json.valor_ganho === null || $json.valor_ganho === undefined ? 'NULL' : $json.valor_ganho }},\n  NULLIF('{{ String($json.forma_ganho ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.produto_servico ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.categoria_produto_servico ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.procedimento_ganho ?? $json.produto_servico ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.motivo_perda_categoria ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.motivo_perda_detalhe ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  '{{ JSON.stringify($json.payload ?? {}).replaceAll(\"'\", \"''\") }}'::jsonb,\n  now(),\n  now()\n)\non conflict (raw_event_id)\ndo update set\n  received_at = excluded.received_at,\n  event_datetime = excluded.event_datetime,\n  client_id = excluded.client_id,\n  client_name = excluded.client_name,\n  source_system = excluded.source_system,\n  event_code = excluded.event_code,\n  event_name = excluded.event_name,\n  ghl_location_id = excluded.ghl_location_id,\n  location_id = excluded.location_id,\n  location_name = excluded.location_name,\n  contact_id = excluded.contact_id,\n  opportunity_id = excluded.opportunity_id,\n  pipeline_id = excluded.pipeline_id,\n  pipeline_name = excluded.pipeline_name,\n  pipeline_stage = excluded.pipeline_stage,\n  status = excluded.status,\n  phone = excluded.phone,\n  phone_raw = excluded.phone_raw,\n  email = excluded.email,\n  full_name = excluded.full_name,\n  first_name = excluded.first_name,\n  last_name = excluded.last_name,\n  lead_origem = excluded.lead_origem,\n  lead_entrada = excluded.lead_entrada,\n  lead_agencias = excluded.lead_agencias,\n  utm_source = excluded.utm_source,\n  utm_medium = excluded.utm_medium,\n  utm_campaign = excluded.utm_campaign,\n  utm_content = excluded.utm_content,\n  utm_term = excluded.utm_term,\n  conversion_source = excluded.conversion_source,\n  entry_point_conversion_source = excluded.entry_point_conversion_source,\n  entry_point_conversion_app = excluded.entry_point_conversion_app,\n  source_type = excluded.source_type,\n  source_id = excluded.source_id,\n  source_url = excluded.source_url,\n  source_ads = excluded.source_ads,\n  ctwa_clid = excluded.ctwa_clid,\n  ctwa_payload = excluded.ctwa_payload,\n  fbp = excluded.fbp,\n  fbc = excluded.fbc,\n  fbclid = excluded.fbclid,\n  gclid = excluded.gclid,\n  gbraid = excluded.gbraid,\n  wbraid = excluded.wbraid,\n  google_campaign_id = excluded.google_campaign_id,\n  google_adgroup_id = excluded.google_adgroup_id,\n  google_ad_id = excluded.google_ad_id,\n  google_keyword = excluded.google_keyword,\n  valor_ganho = excluded.valor_ganho,\n  forma_ganho = excluded.forma_ganho,\n  produto_servico = excluded.produto_servico,\n  categoria_produto_servico = excluded.categoria_produto_servico,\n  procedimento_ganho = excluded.procedimento_ganho,\n  motivo_perda_categoria = excluded.motivo_perda_categoria,\n  motivo_perda_detalhe = excluded.motivo_perda_detalhe,\n  payload = excluded.payload,\n  updated_at = now()\nreturning\n  id,\n  raw_event_id,\n  event_code,\n  contact_id,\n  opportunity_id,\n  status,\n  valor_ganho,\n  forma_ganho,\n  produto_servico,\n  categoria_produto_servico\n),\nlog_update as (\n  update public.workflow_execution_logs l\n  set\n    stage = 'event_normalized',\n    metadata = coalesce(l.metadata, '{}'::jsonb) || jsonb_build_object(\n      'normalized_event_id', u.id,\n      'event_code', u.event_code,\n      'contact_id', u.contact_id,\n      'opportunity_id', u.opportunity_id\n    ),\n    stages = coalesce(l.stages, '{}'::jsonb) || jsonb_build_object(\n      'normalization', jsonb_build_object(\n        'status', 'ok',\n        'normalized_event_id', u.id,\n        'event_code', u.event_code,\n        'at', now()\n      )\n    )\n  from upserted u\n  where l.id = NULLIF(\n    '{{ String($(\"Log Abertura 1.1\").first().json.workflow_log_id ?? \"\").replaceAll(\"'\", \"''\") }}',\n    ''\n  )::uuid\n    and l.status = 'running'\n  returning l.id\n)\nselect u.*\nfrom upserted u\nleft join log_update lu on true;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1120,
+        320
+      ],
+      "id": "0c80db01-2b6b-4126-83da-d454647d3b83",
+      "name": "Upsert Normalized Event",
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.events_raw\nset\n  processing_status = 'normalized',\n  processing_error = null,\n  processed_at = now()\nwhere id = '{{ $json.raw_event_id }}'::uuid\nreturning\n  id,\n  processing_status,\n  processed_at;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        512
+      ],
+      "id": "a7b7c732-c0b2-4a7a-9c91-8b62c3efa210",
+      "name": "Mark Raw as Normalized",
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.events_raw\nset\n  processing_status = 'client_not_found',\n  processing_error = 'Client not found in clients_base for location_id: ' || coalesce(NULLIF('{{ String($json.ghl_location_id ?? $json.location_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''), '[missing_location_id]'),\n  processed_at = now()\nwhere id = '{{ $json.raw_event_id }}'::uuid\nreturning\n  id,\n  processing_status,\n  processing_error,\n  processed_at;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1120,
+        720
+      ],
+      "id": "0d22c197-8f3c-4405-b251-5640f7e7f22d",
+      "name": "Mark Raw as Client Not Found",
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Event received and processed\",\n  \"event_id\": \"{{ $('Insert Raw Event').item.json.id }}\",\n  \"received_at\": \"{{ $('Insert Raw Event').item.json.received_at }}\",\n  \"source_system\": \"{{ $('Insert Raw Event').item.json.source_system }}\",\n  \"event_type\": \"{{ $('Insert Raw Event').item.json.event_type }}\",\n  \"location_id\": \"{{ $('Insert Raw Event').item.json.location_id }}\",\n  \"location_name\": \"{{ $('Insert Raw Event').item.json.location_name }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        448,
+        512
+      ],
+      "id": "56e84775-4f66-4d55-9ed7-7cc5b09dc4df",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const normalizedEvent = $('Normalize Event').item.json;\nconst upsertedEvent = $('Upsert Normalized Event').item.json;\n\nconst rawPayload = normalizedEvent.payload || {};\nconst rawBody = rawPayload.body || {};\nconst rawCustomData = rawBody.customData || rawBody.custom_data || {};\nconst rawContact = rawBody.contact || {};\n\nfunction pick(...values) {\n  return values.find(value => value !== undefined && value !== null && value !== '') || null;\n}\n\nfunction pickObject(...values) {\n  return values.find(value => value && typeof value === 'object' && !Array.isArray(value)) || {};\n}\n\nconst attributionSource = pickObject(\n  rawContact.attributionSource,\n  rawContact.attribution_source,\n  rawBody.attributionSource,\n  rawBody.attribution_source,\n  rawCustomData.attributionSource,\n  rawCustomData.attribution_source\n);\nconst lastAttributionSource = pickObject(\n  rawContact.lastAttributionSource,\n  rawContact.last_attribution_source,\n  rawBody.lastAttributionSource,\n  rawBody.last_attribution_source,\n  rawCustomData.lastAttributionSource,\n  rawCustomData.last_attribution_source\n);\n\nfunction cleanText(value) {\n  if (value === undefined || value === null) return null;\n\n  const text = String(value).trim();\n\n  const invalidValues = [\n    '',\n    'null',\n    'undefined',\n    'nao identificado',\n    'não identificado',\n    'nao_identificado',\n    'não_identificado',\n    'n/a',\n    'sem informação',\n    'sem informacao'\n  ];\n\n  if (invalidValues.includes(text.toLowerCase())) return null;\n\n  return text;\n}\n\n\nfunction getUrlParam(urls, aliases) {\n  const aliasSet = new Set(\n    aliases.map(alias => String(alias).trim().toLowerCase())\n  );\n\n  function safeDecode(value) {\n    const text = String(value ?? '').replace(/\\+/g, ' ');\n\n    try {\n      return decodeURIComponent(text);\n    } catch (error) {\n      return text;\n    }\n  }\n\n  for (const rawUrl of urls) {\n    const cleanedUrl = typeof cleanUrlValue === 'function'\n      ? cleanUrlValue(rawUrl)\n      : cleanText(rawUrl);\n\n    if (!cleanedUrl) continue;\n\n    // Parser manual para funcionar no sandbox do Code node do n8n,\n    // sem depender das classes globais URL ou URLSearchParams.\n    let queryString = String(cleanedUrl).replace(/&amp;/gi, '&');\n\n    const questionMarkIndex = queryString.indexOf('?');\n\n    if (questionMarkIndex >= 0) {\n      queryString = queryString.slice(questionMarkIndex + 1);\n    }\n\n    const hashIndex = queryString.indexOf('#');\n\n    if (hashIndex >= 0) {\n      queryString = queryString.slice(0, hashIndex);\n    }\n\n    for (const pair of queryString.split('&')) {\n      if (!pair) continue;\n\n      const equalsIndex = pair.indexOf('=');\n\n      const rawKey = equalsIndex >= 0\n        ? pair.slice(0, equalsIndex)\n        : pair;\n\n      const rawValue = equalsIndex >= 0\n        ? pair.slice(equalsIndex + 1)\n        : '';\n\n      const key = safeDecode(rawKey).trim().toLowerCase();\n\n      if (!aliasSet.has(key)) continue;\n\n      const decodedValue = safeDecode(rawValue);\n\n      const cleanedValue = typeof cleanUrlValue === 'function'\n        ? cleanUrlValue(decodedValue)\n        : cleanText(decodedValue);\n\n      if (cleanedValue) return cleanedValue;\n    }\n  }\n\n  return null;\n}\n\nconst attributionUrls = [\n  attributionSource.url,\n  attributionSource.sourceUrl,\n  attributionSource.source_url,\n  lastAttributionSource.url,\n  lastAttributionSource.sourceUrl,\n  lastAttributionSource.source_url,\n  normalizedEvent.source_url,\n  rawBody.sourceUrl,\n  rawBody.source_url,\n  rawBody.source?.url,\n  rawCustomData.sourceUrl,\n  rawCustomData.source_url\n];\n\nconst googleCampaignIdFromUrl = getUrlParam(\n  attributionUrls,\n  ['campaignid', 'campaign_id', 'campaignId']\n);\n\nconst googleAdgroupIdFromUrl = getUrlParam(\n  attributionUrls,\n  ['adgroupid', 'ad_group_id', 'adgroup_id', 'adGroupId']\n);\n\nconst googleAdIdFromUrl = getUrlParam(\n  attributionUrls,\n  ['adid', 'ad_id', 'creative', 'creative_id']\n);\n\nconst fbclidFromUrl = getUrlParam(attributionUrls, ['fbclid']);\nconst gclidFromUrl = getUrlParam(attributionUrls, ['gclid']);\nconst gbraidFromUrl = getUrlParam(attributionUrls, ['gbraid']);\nconst wbraidFromUrl = getUrlParam(attributionUrls, ['wbraid']);\n\nfunction normalizeKey(value) {\n  const text = cleanText(value);\n  if (!text) return null;\n\n  return text\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .trim()\n    .replace(/\\s+/g, '_')\n    .replace(/-/g, '_')\n    .toLowerCase();\n}\n\nfunction parseMoney(value) {\n  const cleaned = cleanText(value);\n  if (!cleaned) return null;\n\n  const text = String(cleaned)\n    .replace(/[R$\\s]/g, '')\n    .replace(/\\./g, '')\n    .replace(',', '.');\n\n  const number = Number(text);\n  if (Number.isNaN(number)) return null;\n  return number;\n}\n\nfunction isValidCtwaClid(value) {\n  const text = cleanText(value);\n  if (!text) return false;\n  return text.length >= 20;\n}\n\nfunction getLeadEntradaBucket(value) {\n  const entrada = normalizeKey(value);\n\n  const map = {\n    whatsapp: 'whatsapp',\n    api_whatsapp: 'whatsapp',\n    click_to_whatsapp: 'whatsapp',\n    facebook_ads_whatsapp: 'whatsapp',\n    facebookads_whatsapp: 'whatsapp',\n    meta_ads_whatsapp: 'whatsapp',\n    metaads_whatsapp: 'whatsapp',\n    ctwa: 'whatsapp',\n    wpp: 'whatsapp',\n\n    form_fbads: 'form_fbads',\n    form_facebook_ads: 'form_fbads',\n    form_facebookads: 'form_fbads',\n    form_meta_ads: 'form_fbads',\n    form_metaads: 'form_fbads',\n    fbads_form: 'form_fbads',\n    facebookads_form: 'form_fbads',\n    lead_ads: 'form_fbads',\n    leadads: 'form_fbads',\n    facebook_lead_ads: 'form_fbads',\n    instant_form: 'form_fbads',\n\n    form_site: 'form_site',\n    formulario_site: 'form_site',\n    form_website: 'form_site',\n    website_form: 'form_site',\n    site: 'form_site'\n  };\n\n  return map[entrada] || entrada || null;\n}\n\nfunction getLeadOrigemBucket(value) {\n  const origem = normalizeKey(value);\n\n  const map = {\n    facebookads: 'facebook_ads',\n    facebook_ads: 'facebook_ads',\n    fbads: 'facebook_ads',\n    fb_ads: 'facebook_ads',\n    metaads: 'facebook_ads',\n    meta_ads: 'facebook_ads',\n    instagramads: 'facebook_ads',\n    instagram_ads: 'facebook_ads',\n    facebook: 'facebook_ads',\n    meta: 'facebook_ads',\n\n    googleads: 'google_ads',\n    google_ads: 'google_ads',\n    google: 'google_ads',\n    paidsearch: 'google_ads',\n    paid_search: 'google_ads',\n\n    tiktokads: 'tiktok_ads',\n    tiktok_ads: 'tiktok_ads',\n    tiktok: 'tiktok_ads',\n    ttads: 'tiktok_ads',\n    tt_ads: 'tiktok_ads'\n  };\n\n  return map[origem] || origem || null;\n}\n\nfunction containsWhatsapp(value) {\n  const text = normalizeKey(value);\n  if (!text) return false;\n  return text.includes('whatsapp') || text.includes('wpp') || text.includes('ctwa');\n}\n\nfunction shouldUseWhatsappBusinessMessaging(event, leadEntradaBucket) {\n  if (leadEntradaBucket === 'whatsapp') return true;\n\n  if (containsWhatsapp(event.conversion_source)) return true;\n  if (containsWhatsapp(event.entry_point_conversion_source)) return true;\n  if (containsWhatsapp(event.entry_point_conversion_app)) return true;\n\n  // source_url NÃO decide rota WhatsApp.\n  // Ex.: quizzes usam ?step=whatsapp apenas como etapa do formulário.\n  if (isValidCtwaClid(event.ctwa_clid)) return true;\n\n  return false;\n}\n\nfunction getMetaEventName(eventCode, route) {\n  const standardMap = {\n    lead: 'Lead',\n    agendado: 'Schedule',\n    ganho: 'Purchase'\n  };\n\n  const whatsappBusinessMessagingMap = {\n    lead: 'LeadSubmitted',\n    agendado: 'QualifiedLead',\n    ganho: 'Purchase'\n  };\n\n  if (route === 'whatsapp_bm') {\n    return whatsappBusinessMessagingMap[eventCode] || null;\n  }\n\n  return standardMap[eventCode] || null;\n}\n\nfunction getGoogleEventName(eventCode) {\n  const map = {\n    lead: 'Lead',\n    agendado: 'Agendou',\n    ganho: 'Compra'\n  };\n\n  return map[eventCode] || null;\n}\n\nconst eventCode = normalizeKey(\n  pick(\n    normalizedEvent.event_code,\n    upsertedEvent.event_code\n  )\n);\n\nconst allowedEvents = ['lead', 'agendado', 'ganho'];\n\nconst leadEntrada = cleanText(\n  pick(\n    normalizedEvent.lead_entrada,\n    rawBody.lead_entrada,\n    rawBody.entrada_lead,\n    rawBody.entrada_Lead,\n    rawCustomData.lead_entrada,\n    rawCustomData.entrada_lead,\n    rawCustomData.entrada_Lead\n  )\n);\n\nconst leadOrigem = cleanText(\n  pick(\n    normalizedEvent.lead_origem,\n    rawBody.lead_origem,\n    rawBody.origem_lead,\n    rawBody.origem_Lead,\n    rawCustomData.lead_origem,\n    rawCustomData.origem_lead,\n    rawCustomData.origem_Lead\n  )\n);\n\nlet leadEntradaBucket = getLeadEntradaBucket(leadEntrada);\nlet leadOrigemBucket = getLeadOrigemBucket(leadOrigem);\n\nconst ctwaClid = cleanText(\n  pick(\n    normalizedEvent.ctwa_clid,\n    rawBody.ctwaClid,\n    rawBody.ctwa_clid,\n    rawCustomData.ctwaClid,\n    rawCustomData.ctwa_clid\n  )\n);\n\nconst hasValidCtwa = isValidCtwaClid(ctwaClid);\n\nconst fbclid = cleanText(pick(\n  normalizedEvent.fbclid,\n  rawBody.fbclid,\n  rawCustomData.fbclid,\n  attributionSource.fbclid,\n  lastAttributionSource.fbclid,\n  fbclidFromUrl\n));\n\nconst gclid = cleanText(pick(\n  normalizedEvent.gclid,\n  rawBody.gclid,\n  rawBody.google_click_id,\n  rawBody.googleClickId,\n  rawBody['Google Click ID'],\n  rawCustomData.gclid,\n  rawCustomData.google_click_id,\n  rawCustomData.googleClickId,\n  rawCustomData['Google Click ID'],\n  attributionSource.gclid,\n  lastAttributionSource.gclid,\n  gclidFromUrl\n));\nconst gbraid = cleanText(pick(\n  normalizedEvent.gbraid,\n  rawBody.gbraid,\n  rawCustomData.gbraid,\n  attributionSource.gbraid,\n  lastAttributionSource.gbraid,\n  gbraidFromUrl\n));\nconst wbraid = cleanText(pick(\n  normalizedEvent.wbraid,\n  rawBody.wbraid,\n  rawCustomData.wbraid,\n  attributionSource.wbraid,\n  lastAttributionSource.wbraid,\n  wbraidFromUrl\n));\n\nconst googleCampaignId = cleanText(pick(\n  normalizedEvent.google_campaign_id,\n  rawBody.google_campaign_id,\n  rawBody.googleCampaignId,\n  rawBody.campaignid,\n  rawBody.campaign_id,\n  rawCustomData.google_campaign_id,\n  rawCustomData.googleCampaignId,\n  rawCustomData.campaignid,\n  rawCustomData.campaign_id,\n  attributionSource.campaignId,\n  attributionSource.campaign_id,\n  lastAttributionSource.campaignId,\n  lastAttributionSource.campaign_id,\n  googleCampaignIdFromUrl\n));\nconst googleAdgroupId = cleanText(pick(\n  normalizedEvent.google_adgroup_id,\n  rawBody.google_adgroup_id,\n  rawBody.googleAdgroupId,\n  rawBody.adgroupid,\n  rawBody.adgroup_id,\n  rawCustomData.google_adgroup_id,\n  rawCustomData.googleAdgroupId,\n  rawCustomData.adgroupid,\n  rawCustomData.adgroup_id,\n  attributionSource.adGroupId,\n  attributionSource.adgroupId,\n  attributionSource.ad_group_id,\n  lastAttributionSource.adGroupId,\n  lastAttributionSource.adgroupId,\n  lastAttributionSource.ad_group_id,\n  googleAdgroupIdFromUrl\n));\nconst googleAdId = cleanText(pick(\n  normalizedEvent.google_ad_id,\n  rawBody.google_ad_id,\n  rawBody.googleAdId,\n  rawBody.adid,\n  rawBody.ad_id,\n  rawBody.creative,\n  rawBody.creative_id,\n  rawCustomData.google_ad_id,\n  rawCustomData.googleAdId,\n  rawCustomData.adid,\n  rawCustomData.ad_id,\n  rawCustomData.creative,\n  rawCustomData.creative_id,\n  attributionSource.adId,\n  attributionSource.ad_id,\n  lastAttributionSource.adId,\n  lastAttributionSource.ad_id,\n  googleAdIdFromUrl\n));\nconst googleKeyword = cleanText(pick(\n  normalizedEvent.google_keyword,\n  rawBody.google_keyword,\n  rawBody.googleKeyword,\n  rawBody.keyword,\n  rawCustomData.google_keyword,\n  rawCustomData.googleKeyword,\n  rawCustomData.keyword\n));\n\nconst hasGoogleTrackingSignal = Boolean(\n  gclid || gbraid || wbraid || googleCampaignId || googleAdgroupId || googleAdId || googleKeyword\n);\n\n// Inferência segura para Google Ads: quando o GHL não preencher lead_origem/lead_entrada,\n// mas o payload trouxer IDs Google, tratamos como Google Ads / Form Site para não perder o roteamento.\nif (!leadOrigemBucket && hasGoogleTrackingSignal) leadOrigemBucket = 'google_ads';\nif (!leadEntradaBucket && hasGoogleTrackingSignal) leadEntradaBucket = 'form_site';\n\nconst email = cleanText(pick(normalizedEvent.email, rawBody.email, rawCustomData.email));\nconst phone = cleanText(pick(normalizedEvent.phone, rawBody.phone, rawCustomData.phone));\nconst phoneRaw = cleanText(pick(normalizedEvent.phone_raw, rawBody.phone_raw, rawCustomData.phone_raw));\n\nconst value = eventCode === 'ganho'\n  ? parseMoney(\n      pick(\n        normalizedEvent.valor_ganho,\n        rawBody.valor_ganho,\n        rawBody.value,\n        rawBody.monetary_value,\n        rawCustomData.valor_ganho,\n        rawCustomData.value\n      )\n    )\n  : null;\n\nconst formaGanho = cleanText(\n  pick(\n    normalizedEvent.forma_ganho,\n    rawBody.forma_ganho,\n    rawBody.forma_pagamento_ganho,\n    rawBody.forma_pagamento,\n    rawCustomData.forma_ganho,\n    rawCustomData.forma_pagamento_ganho,\n    rawCustomData.forma_pagamento\n  )\n);\n\nconst produtoServico = cleanText(\n  pick(\n    normalizedEvent.produto_servico,\n    normalizedEvent.produto_serviço,\n    normalizedEvent.produto_servico_ganho,\n    normalizedEvent.produto_serviço_ganho,\n    normalizedEvent['produto/serviço_ganho'],\n    normalizedEvent['produto/servico_ganho'],\n\n    rawBody.produto_servico,\n    rawBody.produto_serviço,\n    rawBody.produto_servico_ganho,\n    rawBody.produto_serviço_ganho,\n    rawBody['produto/serviço_ganho'],\n    rawBody['produto/servico_ganho'],\n\n    rawCustomData.produto_servico,\n    rawCustomData.produto_serviço,\n    rawCustomData.produto_servico_ganho,\n    rawCustomData.produto_serviço_ganho,\n    rawCustomData['produto/serviço_ganho'],\n    rawCustomData['produto/servico_ganho'],\n\n    // fallback legado\n    normalizedEvent.procedimento_ganho,\n    rawBody.procedimento_ganho,\n    rawBody.procedimento_fechado,\n    rawBody.procedimento,\n    rawCustomData.procedimento_ganho,\n    rawCustomData.procedimento_fechado,\n    rawCustomData.procedimento\n  )\n);\n\nconst categoriaProdutoServico = cleanText(\n  pick(\n    normalizedEvent.categoria_produto_servico,\n    normalizedEvent.categoria_produto_serviço,\n    normalizedEvent.categoria_ganho,\n    normalizedEvent.categoria,\n\n    rawBody.categoria_produto_servico,\n    rawBody.categoria_produto_serviço,\n    rawBody.categoria_ganho,\n    rawBody.categoria,\n\n    rawCustomData.categoria_produto_servico,\n    rawCustomData.categoria_produto_serviço,\n    rawCustomData.categoria_ganho,\n    rawCustomData.categoria\n  )\n);\n\nconst procedimentoGanho = cleanText(\n  pick(\n    normalizedEvent.procedimento_ganho,\n    rawBody.procedimento_ganho,\n    rawBody.procedimento_fechado,\n    rawBody.procedimento,\n    rawCustomData.procedimento_ganho,\n    rawCustomData.procedimento_fechado,\n    rawCustomData.procedimento,\n\n    // fallback novo para compatibilidade\n    produtoServico\n  )\n);\n\nconst normalizedEventId = pick(\n  upsertedEvent.id,\n  normalizedEvent.normalized_event_id\n);\n\nconst rawEventId = pick(\n  upsertedEvent.raw_event_id,\n  normalizedEvent.raw_event_id\n);\n\nfunction basePayload(platform, route, platformEventName) {\n  const eventId = [\n    platform,\n    route,\n    normalizedEventId || rawEventId,\n    eventCode\n  ].filter(Boolean).join(':');\n\n  return {\n    event_id: eventId,\n    event_code: eventCode,\n    platform,\n    platform_event_name: platformEventName,\n    route,\n\n    lead_entrada: leadEntrada,\n    lead_entrada_bucket: leadEntradaBucket,\n    lead_origem: leadOrigem,\n    lead_origem_bucket: leadOrigemBucket,\n\n    attribution: {\n      ctwa_clid: ctwaClid,\n      has_valid_ctwa_clid: hasValidCtwa,\n\n      fbp: cleanText(pick(normalizedEvent.fbp, rawBody.fbp, rawCustomData.fbp)),\n      fbc: cleanText(pick(normalizedEvent.fbc, rawBody.fbc, rawCustomData.fbc)),\n      fbclid,\n\n      gclid,\n      gbraid,\n      wbraid,\n\n      google_campaign_id: googleCampaignId,\n      google_adgroup_id: googleAdgroupId,\n      google_ad_id: googleAdId,\n      google_keyword: googleKeyword,\n\n      conversion_source: cleanText(pick(normalizedEvent.conversion_source, rawBody.conversionSource, rawCustomData.conversionSource)),\n      entry_point_conversion_source: cleanText(pick(normalizedEvent.entry_point_conversion_source, rawBody.entryPointConversionSource, rawCustomData.entryPointConversionSource)),\n      entry_point_conversion_app: cleanText(pick(normalizedEvent.entry_point_conversion_app, rawBody.entryPointConversionApp, rawCustomData.entryPointConversionApp)),\n      source_type: cleanText(pick(\n        normalizedEvent.source_type,\n        rawBody.sourceType,\n        rawCustomData.sourceType,\n        attributionSource.sourceType,\n        attributionSource.source_type,\n        attributionSource.type,\n        lastAttributionSource.sourceType,\n        lastAttributionSource.source_type,\n        lastAttributionSource.type\n      )),\n      source_id: cleanText(pick(\n        attributionSource.adId,\n        attributionSource.ad_id,\n        attributionSource.adID,\n        lastAttributionSource.adId,\n        lastAttributionSource.ad_id,\n        lastAttributionSource.adID,\n        normalizedEvent.source_id,\n        rawBody.sourceId,\n        rawCustomData.sourceId\n      )),\n      source_url: cleanText(pick(\n        normalizedEvent.source_url,\n        rawBody.sourceUrl,\n        rawCustomData.sourceUrl,\n        rawBody.source?.url,\n        attributionSource.url,\n        attributionSource.sourceUrl,\n        attributionSource.source_url,\n        lastAttributionSource.url,\n        lastAttributionSource.sourceUrl,\n        lastAttributionSource.source_url\n      ))\n    },\n\n    user_data_source: {\n      contact_id: cleanText(pick(normalizedEvent.contact_id, rawBody.contact_id, rawCustomData.contact_id)),\n      phone,\n      phone_raw: phoneRaw,\n      email,\n      first_name: cleanText(pick(normalizedEvent.first_name, rawBody.first_name, rawCustomData.first_name)),\n      last_name: cleanText(pick(normalizedEvent.last_name, rawBody.last_name, rawCustomData.last_name)),\n      full_name: cleanText(pick(normalizedEvent.full_name, rawBody.full_name, rawCustomData.full_name))\n    },\n\n    custom_data: {\n      currency: 'BRL',\n      value,\n\n      produto_servico: produtoServico,\n      categoria_produto_servico: categoriaProdutoServico,\n\n      // legado: manter temporariamente para compatibilidade\n      procedimento_ganho: procedimentoGanho || produtoServico,\n\n      forma_ganho: formaGanho,\n      client_id: cleanText(normalizedEvent.client_id),\n      client_name: cleanText(normalizedEvent.client_name),\n      ghl_location_id: cleanText(normalizedEvent.ghl_location_id),\n      opportunity_id: cleanText(normalizedEvent.opportunity_id),\n      pipeline_id: cleanText(normalizedEvent.pipeline_id),\n      pipeline_name: cleanText(normalizedEvent.pipeline_name),\n      pipeline_stage: cleanText(normalizedEvent.pipeline_stage),\n      status: cleanText(normalizedEvent.status)\n    }\n  };\n}\n\nfunction makeJob({ platform, route, platformEventName, status = 'pending', lastError = null, payload }) {\n  return {\n    json: {\n      routing_decision_status: 'job_created',\n      routing_reason: lastError,\n      should_create_outbox: true,\n      should_create_conversion_outbox: true,\n\n      normalized_event_id: normalizedEventId,\n      raw_event_id: rawEventId,\n\n      client_id: cleanText(normalizedEvent.client_id),\n      client_name: cleanText(normalizedEvent.client_name),\n      ghl_location_id: cleanText(normalizedEvent.ghl_location_id),\n      contact_id: cleanText(pick(normalizedEvent.contact_id, rawBody.contact_id, rawCustomData.contact_id)),\n      opportunity_id: cleanText(normalizedEvent.opportunity_id),\n\n      event_code: eventCode,\n      platform,\n      route,\n\n      // Campo legado da tabela conversion_outbox. Para Google, use como nome do evento da plataforma.\n      meta_event_name: platformEventName,\n      platform_event_name: platformEventName,\n\n      status,\n      last_error: lastError,\n      payload: {\n        ...payload,\n        routing_checks: {\n          allowed_event: allowedEvents.includes(eventCode),\n          lead_entrada_received: leadEntrada,\n          lead_entrada_bucket: leadEntradaBucket,\n          lead_origem_received: leadOrigem,\n          lead_origem_bucket: leadOrigemBucket,\n          platform,\n          route,\n          platform_event_name: platformEventName,\n          status,\n          last_error: lastError\n        }\n      },\n\n      outbox_status: status,\n      outbox_last_error: lastError,\n      outbox_payload: payload\n    }\n  };\n}\n\nfunction makeControlItem(reason, routingDecisionStatus = 'skipped') {\n  return {\n    json: {\n      routing_decision_status: routingDecisionStatus,\n      routing_reason: reason,\n      should_create_outbox: false,\n      should_create_conversion_outbox: false,\n      normalized_event_id: normalizedEventId,\n      raw_event_id: rawEventId,\n      client_id: cleanText(normalizedEvent.client_id),\n      client_name: cleanText(normalizedEvent.client_name),\n      ghl_location_id: cleanText(normalizedEvent.ghl_location_id),\n      contact_id: cleanText(pick(normalizedEvent.contact_id, rawBody.contact_id, rawCustomData.contact_id)),\n      event_code: eventCode,\n      platform: 'none',\n      route: 'no_dispatch',\n      meta_event_name: 'no_dispatch',\n      platform_event_name: 'no_dispatch',\n      status: 'skipped',\n      last_error: reason,\n      payload: {\n        event_code: eventCode,\n        platform: 'none',\n        route: 'no_dispatch',\n        lead_entrada: leadEntrada,\n        lead_entrada_bucket: leadEntradaBucket,\n        lead_origem: leadOrigem,\n        lead_origem_bucket: leadOrigemBucket,\n        routing_checks: {\n          status: 'skipped',\n          last_error: reason\n        }\n      }\n    }\n  };\n}\n\nconst jobs = [];\n\nif (allowedEvents.includes(eventCode) && leadOrigemBucket === 'facebook_ads') {\n  const route = shouldUseWhatsappBusinessMessaging(\n    {\n      ...normalizedEvent,\n      ctwa_clid: ctwaClid\n    },\n    leadEntradaBucket\n  )\n    ? 'whatsapp_bm'\n    : 'standard';\n\n  const metaEventName = getMetaEventName(eventCode, route);\n\n  if (metaEventName) {\n    let status = 'pending';\n    let lastError = null;\n\n    if (\n      eventCode === 'lead' &&\n      leadEntradaBucket === 'form_fbads' &&\n      leadOrigemBucket === 'facebook_ads'\n    ) {\n      status = 'skipped';\n      lastError = 'native_lead_form_lead_event_not_sent';\n    }\n\n    if (route === 'whatsapp_bm' && !hasValidCtwa) {\n      status = 'skipped';\n      lastError = 'missing_ctwa_clid_for_whatsapp_business_messaging';\n    }\n\n    const payload = basePayload('meta', route, metaEventName);\n    payload.meta_event_name = metaEventName;\n    payload.route = route;\n    payload.attribution.is_whatsapp_route = route === 'whatsapp_bm';\n\n    jobs.push(makeJob({\n      platform: 'meta',\n      route,\n      platformEventName: metaEventName,\n      status,\n      lastError,\n      payload\n    }));\n  }\n}\n\nif (allowedEvents.includes(eventCode) && leadOrigemBucket === 'google_ads' && leadEntradaBucket === 'form_site') {\n  const googleEventName = getGoogleEventName(eventCode);\n\n  if (googleEventName) {\n    const hasClickId = Boolean(gclid || gbraid || wbraid);\n    const hasUserIdentifier = Boolean(email || phone || phoneRaw);\n\n    let status = 'pending';\n    let lastError = null;\n\n    if (!hasClickId && !hasUserIdentifier) {\n      status = 'skipped';\n      lastError = 'missing_google_match_key';\n    }\n\n    const payload = basePayload('google_ads', 'offline_conversion', googleEventName);\n\n    payload.google_event_name = googleEventName;\n    payload.google_event_code = eventCode;\n    payload.route = 'offline_conversion';\n    payload.click_ids = {\n      gclid,\n      gbraid,\n      wbraid,\n      has_click_id: hasClickId\n    };\n    payload.google_valuetrack = {\n      google_campaign_id: googleCampaignId,\n      google_adgroup_id: googleAdgroupId,\n      google_ad_id: googleAdId,\n      google_keyword: googleKeyword,\n      has_google_campaign_id: Boolean(googleCampaignId),\n      has_google_adgroup_id: Boolean(googleAdgroupId),\n      has_google_ad_id: Boolean(googleAdId)\n    };\n    payload.match_keys = {\n      has_click_id: hasClickId,\n      has_user_identifier: hasUserIdentifier,\n      has_email: Boolean(email),\n      has_phone: Boolean(phone || phoneRaw)\n    };\n\n    // O workflow 04 deve resolver a conversion_action a partir de clients_base:\n    // lead -> google_conversion_action_lead\n    // agendado -> google_conversion_action_agendado\n    // ganho -> google_conversion_action_ganho\n    payload.google_config_hint = {\n      expected_origin: 'google_ads',\n      expected_entry: 'form_site',\n      conversion_action_field: eventCode === 'lead'\n        ? 'google_conversion_action_lead'\n        : eventCode === 'agendado'\n          ? 'google_conversion_action_agendado'\n          : 'google_conversion_action_ganho'\n    };\n\n    jobs.push(makeJob({\n      platform: 'google_ads',\n      route: 'offline_conversion',\n      platformEventName: googleEventName,\n      status,\n      lastError,\n      payload\n    }));\n  }\n}\n\nif (jobs.length === 0) {\n  if (!allowedEvents.includes(eventCode)) {\n    return [makeControlItem(\n      'event_code_not_sent_to_ad_platforms',\n      'not_applicable'\n    )];\n  }\n\n  return [makeControlItem(\n    'no_eligible_tracking_route',\n    'skipped'\n  )];\n}\n\nreturn jobs;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        320
+      ],
+      "id": "7945147c-ee2e-436c-bc56-9ba185a19397",
+      "name": "Build Platform Conversion Jobs"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with input as (\n  select\n    NULLIF('{{ String($json.normalized_event_id ?? \"\").replaceAll(\"'\", \"''\") }}', '')::uuid as normalized_event_id,\n    NULLIF('{{ String($json.raw_event_id ?? \"\").replaceAll(\"'\", \"''\") }}', '')::uuid as raw_event_id,\n    NULLIF('{{ String($json.ghl_location_id ?? \"\").replaceAll(\"'\", \"''\") }}', '') as ghl_location_id,\n    NULLIF('{{ String($json.contact_id ?? \"\").replaceAll(\"'\", \"''\") }}', '') as contact_id,\n    NULLIF('{{ String($json.event_code ?? \"\").replaceAll(\"'\", \"''\") }}', '') as event_code,\n    NULLIF('{{ String($json.platform ?? \"\").replaceAll(\"'\", \"''\") }}', '') as platform,\n    NULLIF('{{ String($json.route ?? \"\").replaceAll(\"'\", \"''\") }}', '') as route,\n    NULLIF('{{ String($json.meta_event_name ?? $json.platform_event_name ?? \"\").replaceAll(\"'\", \"''\") }}', '') as meta_event_name,\n    '{{ JSON.stringify($json.payload ?? $json.outbox_payload ?? {}).replaceAll(\"'\", \"''\") }}'::jsonb as payload,\n    NULLIF('{{ String($json.status ?? $json.outbox_status ?? \"pending\").replaceAll(\"'\", \"''\") }}', '') as status,\n    NULLIF('{{ String($json.last_error ?? $json.outbox_last_error ?? \"\").replaceAll(\"'\", \"''\") }}', '') as last_error,\n    {{ $json.should_create_outbox === true ? 'true' : 'false' }}::boolean as should_create_outbox,\n    NULLIF('{{ String($json.routing_decision_status ?? \"\").replaceAll(\"'\", \"''\") }}', '') as routing_decision_status,\n    NULLIF('{{ String($json.routing_reason ?? $json.last_error ?? \"\").replaceAll(\"'\", \"''\") }}', '') as routing_reason\n),\nupdated as (\n  update public.conversion_outbox co\n  set\n    ghl_location_id = i.ghl_location_id,\n    contact_id = i.contact_id,\n    event_code = i.event_code,\n    payload = i.payload,\n    status = case\n      when co.status = 'sent' then co.status\n      else i.status\n    end,\n    last_error = case\n      when co.status = 'sent' then co.last_error\n      else i.last_error\n    end,\n    next_attempt_at = case\n      when co.status = 'sent' then co.next_attempt_at\n      else now()\n    end\n  from input i\n  where i.should_create_outbox = true\n    and i.normalized_event_id is not null\n    and co.normalized_event_id = i.normalized_event_id\n    and co.platform = i.platform\n    and co.route = i.route\n    and co.meta_event_name = i.meta_event_name\n  returning\n    co.id as conversion_outbox_id,\n    co.status as outbox_status,\n    co.last_error as outbox_last_error,\n    co.created_at as outbox_created_at,\n    'updated'::text as outbox_action\n),\ninserted as (\n  insert into public.conversion_outbox (\n    normalized_event_id,\n    ghl_location_id,\n    contact_id,\n    event_code,\n    platform,\n    route,\n    meta_event_name,\n    payload,\n    status,\n    attempts,\n    response,\n    last_error,\n    next_attempt_at,\n    created_at,\n    sent_at\n  )\n  select\n    i.normalized_event_id,\n    i.ghl_location_id,\n    i.contact_id,\n    i.event_code,\n    i.platform,\n    i.route,\n    i.meta_event_name,\n    i.payload,\n    i.status,\n    0,\n    null,\n    i.last_error,\n    now(),\n    now(),\n    null\n  from input i\n  where i.should_create_outbox = true\n    and i.normalized_event_id is not null\n    and not exists (select 1 from updated)\n    and not exists (\n      select 1\n      from public.conversion_outbox co\n      where co.normalized_event_id = i.normalized_event_id\n        and co.platform = i.platform\n        and co.route = i.route\n        and co.meta_event_name = i.meta_event_name\n    )\n  returning\n    id as conversion_outbox_id,\n    status as outbox_status,\n    last_error as outbox_last_error,\n    created_at as outbox_created_at,\n    'inserted'::text as outbox_action\n),\nresult as (\n  select * from updated\n  union all\n  select * from inserted\n),\nrouting_result as (\nselect\n  i.raw_event_id,\n  i.normalized_event_id,\n  i.event_code,\n  i.platform,\n  i.route,\n  i.meta_event_name,\n  i.should_create_outbox,\n  i.routing_decision_status,\n  i.routing_reason,\n  coalesce(\n    r.outbox_action,\n    case\n      when i.should_create_outbox = false then 'skipped_no_outbox_needed'\n      when i.normalized_event_id is null then 'skipped_missing_normalized_event_id'\n      else 'not_inserted_unknown'\n    end\n  ) as outbox_action,\n  r.conversion_outbox_id,\n  r.outbox_status,\n  r.outbox_last_error,\n  r.outbox_created_at\nfrom input i\nleft join result r on true\nlimit 1\n),\nlog_update as (\n  update public.workflow_execution_logs l\n  set\n    stage = 'routing_decision_recorded',\n    metadata = coalesce(l.metadata, '{}'::jsonb) || jsonb_build_object(\n      'routing_status', rr.routing_decision_status,\n      'routing_reason', coalesce(rr.routing_reason, rr.outbox_last_error),\n      'conversion_outbox_id', rr.conversion_outbox_id,\n      'platform', rr.platform,\n      'route', rr.route,\n      'outbox_status', rr.outbox_status\n    ),\n    stages = coalesce(l.stages, '{}'::jsonb) || jsonb_build_object(\n      'routing', jsonb_build_object(\n        'status', coalesce(rr.routing_decision_status, 'unknown'),\n        'reason', coalesce(rr.routing_reason, rr.outbox_last_error),\n        'jobs_created', case when rr.conversion_outbox_id is not null then 1 else 0 end,\n        'outbox_id', rr.conversion_outbox_id,\n        'platform', rr.platform,\n        'route', rr.route,\n        'outbox_status', rr.outbox_status,\n        'at', now()\n      )\n    )\n  from routing_result rr\n  where l.id = NULLIF(\n    '{{ String($(\"Log Abertura 1.1\").first().json.workflow_log_id ?? \"\").replaceAll(\"'\", \"''\") }}',\n    ''\n  )::uuid\n    and l.status = 'running'\n  returning l.id\n)\nselect rr.*\nfrom routing_result rr\nleft join log_update lu on true;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -672,
+        320
+      ],
+      "id": "60d1dc9d-48d6-4f46-820c-eab20d516d69",
+      "name": "Upsert Conversion Outbox",
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $json;\n\nfunction cleanText(value) {\n  if (value === undefined || value === null) return null;\n  const text = String(value).trim();\n  return text || null;\n}\n\nconst conversionOutboxId = cleanText(row.conversion_outbox_id);\nconst outboxStatus = cleanText(row.outbox_status);\nconst platform = cleanText(row.platform);\n\nconst shouldDispatch = Boolean(conversionOutboxId && outboxStatus === 'pending');\n\nreturn [\n  {\n    json: {\n      raw_event_id: cleanText(row.raw_event_id),\n      normalized_event_id: cleanText(row.normalized_event_id),\n      conversion_outbox_id: conversionOutboxId,\n      event_code: cleanText(row.event_code),\n      platform,\n      route: cleanText(row.route),\n      platform_event_name: cleanText(row.meta_event_name),\n      meta_event_name: platform === 'meta' ? cleanText(row.meta_event_name) : null,\n      google_event_name: platform === 'google_ads' ? cleanText(row.meta_event_name) : null,\n      outbox_status: outboxStatus,\n      routing_decision_status: cleanText(row.routing_decision_status),\n      routing_reason: cleanText(row.routing_reason || row.outbox_last_error),\n      should_dispatch: shouldDispatch,\n      should_dispatch_meta: Boolean(shouldDispatch && platform === 'meta'),\n      should_dispatch_google: Boolean(shouldDispatch && platform === 'google_ads')\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        320
+      ],
+      "id": "f532f19a-1f59-4745-b034-11c084df9a23",
+      "name": "Prepare Platform Dispatch Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c91567ca-58eb-45ab-a424-98c78a4950ed",
+              "leftValue": "={{ $json.should_dispatch_meta }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -224,
+        96
+      ],
+      "id": "173e5aae-6b5e-432e-b274-5a1c7a6e5240",
+      "name": "IF Should Dispatch Meta"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fbf79b0c-8149-49df-a74e-1f7cb9ee7c03",
+              "leftValue": "={{ $json.should_dispatch_google }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -224,
+        320
+      ],
+      "id": "5c572f40-6999-4b6c-8253-dc556e9dca03",
+      "name": "IF Should Dispatch Google"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "GuJOyCaF93i7ps8l",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/GuJOyCaF93i7ps8l",
+          "cachedResultName": "IMP-215 - Dispatch Single Meta Claim"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "outbox_id": "={{ $json.conversion_outbox_id }}",
+            "dispatch_mode": "inline"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "76c022f8-821b-495b-be59-870b54a7c09b",
+      "name": "Call 03 - Dispatch Meta Conversion"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "VLzVbZaFqeKa0JJr",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/VLzVbZaFqeKa0JJr",
+          "cachedResultName": "IMP-215 - Dispatch Single Google Claim"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "outbox_id": "={{ $json.conversion_outbox_id }}",
+            "dispatch_mode": "inline"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        288
+      ],
+      "id": "856a628a-fa3d-4b0c-8238-c0f6ee5068bb",
+      "name": "Call 04 - Dispatch Google Ads Conversion"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.workflow_execution_logs (\n  workflow_key,\n  workflow_name,\n  workflow_category,\n  n8n_execution_id,\n  ghl_location_id,\n  status,\n  stage,\n  metadata,\n  stages\n)\nvalues (\n  '1.1',\n  '1.1 - Inbound Events - Normalize + Conversion Router',\n  'events',\n  '{{ $execution.id }}',\n  NULLIF('{{ String($json.location_id ?? \"\").replaceAll(\"'\", \"''\") }}', ''),\n  'running',\n  'raw_inserted',\n  '{{ JSON.stringify({\n    raw_event_id: $json.id ?? null,\n    contact_id: $json.contact_id ?? null,\n    location_id: $json.location_id ?? null,\n    source_system: $json.source_system ?? null\n  }).replaceAll(\"'\", \"''\") }}'::jsonb,\n  '{{ JSON.stringify({\n    raw: {\n      status: \"inserted\",\n      raw_event_id: $json.id ?? null,\n      at: new Date().toISOString()\n    }\n  }).replaceAll(\"'\", \"''\") }}'::jsonb\n)\nreturning id as workflow_log_id;\n",
+        "options": {}
+      },
+      "id": "4fab97ab-8f72-45e1-8da3-f0e11e09684b",
+      "name": "Log Abertura 1.1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1888,
+        512
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.workflow_execution_logs\nset\n  status = 'success',\n  stage = case\n    when NULLIF('{{ String($(\"Upsert Conversion Outbox\").first().json.routing_decision_status ?? \"\").replaceAll(\"'\", \"''\") }}', '') = 'not_applicable'\n      then 'completed_not_applicable'\n    when NULLIF('{{ String($(\"Upsert Conversion Outbox\").first().json.routing_decision_status ?? \"\").replaceAll(\"'\", \"''\") }}', '') = 'skipped'\n      then 'completed_no_conversion_route'\n    when NULLIF('{{ String($(\"Upsert Conversion Outbox\").first().json.outbox_status ?? \"\").replaceAll(\"'\", \"''\") }}', '') = 'skipped'\n      then 'completed_conversion_skipped'\n    when NULLIF('{{ String($(\"Upsert Conversion Outbox\").first().json.conversion_outbox_id ?? \"\").replaceAll(\"'\", \"''\") }}', '') is not null\n      then 'completed_with_conversion_job'\n    else 'completed'\n  end,\n  finished_at = now(),\n  duration_ms = (extract(epoch from (now() - started_at)) * 1000)::bigint,\n  items_processed = 1,\n  items_failed = 0,\n  error_message = null,\n  error_node = null,\n  metadata = coalesce(metadata, '{}'::jsonb) ||\n    '{{ JSON.stringify({\n      processing_result: \"normalized\",\n      normalized_event_id: $(\"Upsert Normalized Event\").first().json.id ?? null,\n      routing_status: $(\"Upsert Conversion Outbox\").first().json.routing_decision_status ?? null,\n      routing_reason: $(\"Upsert Conversion Outbox\").first().json.routing_reason ?? $(\"Upsert Conversion Outbox\").first().json.outbox_last_error ?? null,\n      conversion_outbox_id: $(\"Upsert Conversion Outbox\").first().json.conversion_outbox_id ?? null,\n      platform: $(\"Upsert Conversion Outbox\").first().json.platform ?? null,\n      route: $(\"Upsert Conversion Outbox\").first().json.route ?? null,\n      outbox_status: $(\"Upsert Conversion Outbox\").first().json.outbox_status ?? null\n    }).replaceAll(\"'\", \"''\") }}'::jsonb,\n  stages = coalesce(stages, '{}'::jsonb) ||\n    '{{ JSON.stringify({\n      completion: {\n        status: \"success\",\n        processing_result: \"normalized\",\n        at: new Date().toISOString()\n      }\n    }).replaceAll(\"'\", \"''\") }}'::jsonb\nwhere id = NULLIF(\n  '{{ String($(\"Log Abertura 1.1\").first().json.workflow_log_id ?? \"\").replaceAll(\"'\", \"''\") }}',\n  ''\n)::uuid\n  and status = 'running'\nreturning\n  id,\n  workflow_key,\n  workflow_name,\n  status,\n  stage,\n  started_at,\n  finished_at,\n  duration_ms,\n  metadata,\n  stages;\n",
+        "options": {}
+      },
+      "id": "74e19298-ec05-4f33-8f82-8fa4a7ed8021",
+      "name": "Log Fechamento - Success",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        224,
+        512
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.workflow_execution_logs\nset\n  status = 'success',\n  stage = 'client_not_found_recorded',\n  finished_at = now(),\n  duration_ms = (extract(epoch from (now() - started_at)) * 1000)::bigint,\n  items_processed = 1,\n  items_failed = 0,\n  error_message = null,\n  error_node = null,\n  metadata = coalesce(metadata, '{}'::jsonb) ||\n    '{{ JSON.stringify({\n      processing_result: \"client_not_found\",\n      processing_reason: $json.processing_error ?? null\n    }).replaceAll(\"'\", \"''\") }}'::jsonb,\n  stages = coalesce(stages, '{}'::jsonb) ||\n    '{{ JSON.stringify({\n      completion: {\n        status: \"success\",\n        processing_result: \"client_not_found\",\n        reason: $json.processing_error ?? null,\n        at: new Date().toISOString()\n      }\n    }).replaceAll(\"'\", \"''\") }}'::jsonb\nwhere id = NULLIF(\n  '{{ String($(\"Log Abertura 1.1\").first().json.workflow_log_id ?? \"\").replaceAll(\"'\", \"''\") }}',\n  ''\n)::uuid\n  and status = 'running'\nreturning\n  id,\n  workflow_key,\n  workflow_name,\n  status,\n  stage,\n  started_at,\n  finished_at,\n  duration_ms,\n  metadata,\n  stages;\n",
+        "options": {}
+      },
+      "id": "de9808c4-ec0c-4c33-ad67-854aa4dfc50e",
+      "name": "Log Fechamento - Client Not Found",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -896,
+        720
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Observabilidade V2 — 1.1\n\nO ciclo de log agora faz parte do caminho principal:\n\n1. Insert Raw Event\n2. Log Abertura 1.1\n3. Resolução do cliente\n4. Normalização\n5. Decisão de roteamento\n6. Fechamento por ID exato do log\n7. Respond to Webhook\n\n**Sem ramos paralelos para abrir/fechar o log.**\n\nResultados tratados de negócio ou plataforma não são classificados como erro técnico do n8n:\n\n- cliente não encontrado → resultado registrado no raw; log n8n fecha com success\n- evento não aplicável → routing not_applicable; log n8n fecha com success\n- sem rota elegível → routing skipped; log n8n fecha com success\n\nErros técnicos inesperados continuam sendo capturados pelo workflow 9.9.",
+        "height": 500,
+        "width": 500
+      },
+      "id": "06fd0fa8-4fdd-40b5-ab3d-525807244d53",
+      "name": "Sticky Note - Logs",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2000,
+        960
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Raw Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Raw Event": {
+      "main": [
+        [
+          {
+            "node": "Insert Raw Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Raw Event": {
+      "main": [
+        [
+          {
+            "node": "Log Abertura 1.1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Raw Event + Client": {
+      "main": [
+        [
+          {
+            "node": "Normalize Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Event": {
+      "main": [
+        [
+          {
+            "node": "IF Client Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Client Found": {
+      "main": [
+        [
+          {
+            "node": "Upsert Normalized Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Raw as Client Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Normalized Event": {
+      "main": [
+        [
+          {
+            "node": "Build Platform Conversion Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Platform Conversion Jobs": {
+      "main": [
+        [
+          {
+            "node": "Upsert Conversion Outbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Conversion Outbox": {
+      "main": [
+        [
+          {
+            "node": "Prepare Platform Dispatch Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Platform Dispatch Input": {
+      "main": [
+        [
+          {
+            "node": "IF Should Dispatch Meta",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF Should Dispatch Google",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mark Raw as Normalized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Should Dispatch Meta": {
+      "main": [
+        [
+          {
+            "node": "Call 03 - Dispatch Meta Conversion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Should Dispatch Google": {
+      "main": [
+        [
+          {
+            "node": "Call 04 - Dispatch Google Ads Conversion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Raw as Normalized": {
+      "main": [
+        [
+          {
+            "node": "Log Fechamento - Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Raw as Client Not Found": {
+      "main": [
+        [
+          {
+            "node": "Log Fechamento - Client Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Abertura 1.1": {
+      "main": [
+        [
+          {
+            "node": "Get Raw Event + Client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Fechamento - Success": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Fechamento - Client Not Found": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "ac2f5220-f205-47e7-a5f8-546ff5bbba9d",
+  "meta": {
+    "instanceId": "a00c0f84fb4f68f6afbad2bb1b9afe227827f5c4b3d52346ff0dedadf7be8d5b"
+  },
+  "nodeGroups": [],
+  "id": "W0JZwcp7VR5DfLoZ",
+  "tags": []
+}
