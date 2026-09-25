@@ -1,7 +1,8 @@
 # Roteiro do ImpulsHub
 
-**Atualizado em 21/09/2026.** Este arquivo é a fonte única de direção. Se outro
-documento disser algo diferente, este vale.
+**Atualizado em 21/09/2026.** Este arquivo é a direção de produto. O inventário
+operacional datado fica em [`STATUS-OPERACIONAL.md`](STATUS-OPERACIONAL.md);
+não use o roadmap como diário de produção.
 
 ---
 
@@ -42,7 +43,7 @@ estava produzindo pressa. O critério é a lista da seção "Porta de entrada".
 usam `private.my_client_ids()` com alias explícito no consumo da função.
 **IMP-213 está aplicada com o hotfix do histórico entre clientes.**
 
-**Produção roda `793f72b`, com o painel atualizado.** A ponte de conversões continua inerte.
+**Produção está no `main` atual; consulte [`STATUS-OPERACIONAL.md`](STATUS-OPERACIONAL.md) para o commit e deployment verificados.** A ponte de conversões continua inerte.
 
 ### Dados por cliente
 
@@ -97,10 +98,9 @@ laboratório.
 IMP-214/onboarding; a IMP-213 não libera o CRM para clínicas que ainda operam
 no GHL.
 
-**Pronto quando:** a aba CRM está em `painel.impulshub.com.br`, **não aparece
-para um login de clínica**, e o smoke test prova **variação zero** em
-`conversion_outbox` para `source_system = 'impuls_crm'` — conta antes, move um
-card, conta depois, diferença exatamente zero.
+**Pronto quando:** a aba CRM está em [`https://painel.impulshub.com`](https://painel.impulshub.com), **não aparece para um login de clínica**, e o smoke test prova **variação zero** em `conversion_outbox` para `source_system = 'impuls_crm'` — conta antes, move um card, conta depois, diferença exatamente zero.
+
+O domínio oficial é `impulshub.com`. O endereço `.com.br` usado em registros antigos estava incorreto e não deve ser usado como URL oficial.
 
 ### 2 — Avaliar em uso · IMP-224
 O Caio opera o painel por alguns dias e anota o que incomoda. Uso real, não
@@ -151,22 +151,14 @@ confia nela.
 
 O estado medido:
 
-- **Ninguém consome a `conversion_outbox`.** 512 linhas `pending` paradas — 326
-  de `google_ads` desde 24/08, 186 de `meta` desde 10/09. O n8n `1.1` grava a
-  linha *e* entrega na mesma execução; o que não sai na hora fica pendente para
-  sempre. **A outbox é um registro, não uma fila.**
-- A ponte exige `ghl_location_id` e lança exceção se vazio — cliente sem GHL
-  quebraria ao mover card.
+- **Não há consumidor externo ativo para a `conversion_outbox` do IMP-215.** O estado operacional atual registra **0 mensagens raw elegíveis da Impuls**. Os artefatos do IMP-215 estão inativos; o primeiro envio externo ainda não ocorreu.
+- A ponte exige `ghl_location_id` e lança exceção se vazio — cliente sem GHL quebraria ao mover card.
 - Ganho é emitido **antes de valor e moeda serem gravados.**
 - Só cria job Meta; Google nunca recebe.
 
-⚠️ **As 512 linhas pendentes não podem ser enviadas.** São de agosto e setembro.
-Qualquer consumidor precisa de corte por data e por cliente — evento aceito pela
-Conversions API não volta.
+⚠️ **Nenhuma linha antiga deve ser enviada por inferência.** Qualquer consumidor precisa de corte por data e por cliente — evento aceito pela Conversions API não volta.
 
-**Meta é o primeiro canário.** O Google não pode sumir em silêncio: antes de
-encerrar a etapa, a IMP-218 precisa de decisão explícita — entra junto ou é
-adiada com motivo escrito. O Google recebe conversão hoje (230 enviadas).
+**Meta é o primeiro canário.** O Google não pode sumir em silêncio: antes de encerrar a etapa, a IMP-218 precisa de decisão explícita — entra junto ou é adiada com motivo escrito.
 
 **Pronto quando:** mover um card na Impuls faz o evento aparecer no Gerenciador
 de Eventos da Meta, e o runbook de ativação (IMP-219) existe.
