@@ -23,7 +23,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const config = { dry_run: true, dispatch_enabled: false, max_attempts: 4, batch_size: 10, lease_minutes: 30, allowlisted_client_ids: ['3ec294db-a64a-4420-9b4a-0d917f65d399'], cutoff_at_by_client: { '3ec294db-a64a-4420-9b4a-0d917f65d399': '2026-09-23T17:59:28.277Z' } };\nif (!config.allowlisted_client_ids.length) throw new Error('allowlist_required');\nfor (const id of config.allowlisted_client_ids) { if (!config.cutoff_at_by_client[id]) throw new Error('cutoff_required:' + id); }\nreturn [{ json: config }];"
+        "jsCode": "const config = { dry_run: false, dispatch_enabled: true, max_attempts: 4, batch_size: 10, lease_minutes: 30, allowlisted_client_ids: ['3ec294db-a64a-4420-9b4a-0d917f65d399'], cutoff_at_by_client: { '3ec294db-a64a-4420-9b4a-0d917f65d399': '2026-09-23T17:59:28.277Z' } };\nif (!config.allowlisted_client_ids.length) throw new Error('allowlist_required');\nfor (const id of config.allowlisted_client_ids) { if (!config.cutoff_at_by_client[id]) throw new Error('cutoff_required:' + id); }\nreturn [{ json: config }];"
       },
       "id": "imp215-config",
       "name": "Validate Versioned Allowlist and Cutoff",
@@ -358,7 +358,7 @@
   },
   "versionId": null,
   "meta": {
-    "imp215": "claim/lease/closure contract; inactive; dry_run=true; dispatch_enabled=false",
+    "imp215": "claim/lease/closure contract; active for Impuls pilot; dry_run=false; dispatch_enabled=true",
     "external_send": false
   },
   "id": null
