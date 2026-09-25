@@ -1,5 +1,10 @@
 export type CreativeImageStatus = 'missing' | 'expired' | 'available' | 'inaccessible'
 
+export type CreativeImageState = {
+  index: number
+  status: CreativeImageStatus
+}
+
 const META_CDN_HOSTS = ['fbcdn.net', 'facebook.com', 'fbsbx.com']
 
 function isMetaCdnUrl(url: string): boolean {
@@ -35,6 +40,39 @@ export function diagnoseCreativeUrl(
   } catch {
     return 'inaccessible'
   }
+}
+
+export function creativeImageSourcesKey(
+  sources: Array<string | null | undefined>,
+  sourceIdentity = '',
+): string {
+  return JSON.stringify([sourceIdentity, sources])
+}
+
+export function initialCreativeImageState(
+  sources: Array<string | null | undefined>,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): CreativeImageState {
+  const candidates = sources.filter((source): source is string => Boolean(source?.trim()))
+  const index = candidates.findIndex((source) => diagnoseCreativeUrl(source, nowSeconds) === 'available')
+  return {
+    index: index >= 0 ? index : 0,
+    status: index >= 0 ? 'available' : (candidates.length ? diagnoseCreativeUrl(candidates[0], nowSeconds) : 'missing'),
+  }
+}
+
+export function nextCreativeImageState(
+  sources: Array<string | null | undefined>,
+  failedIndex: number,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): CreativeImageState {
+  const candidates = sources.filter((source): source is string => Boolean(source?.trim()))
+  for (let index = failedIndex + 1; index < candidates.length; index += 1) {
+    if (diagnoseCreativeUrl(candidates[index], nowSeconds) === 'available') {
+      return { index, status: 'available' }
+    }
+  }
+  return { index: failedIndex, status: 'inaccessible' }
 }
 
 export function creativeImageStatusLabel(status: CreativeImageStatus): string {

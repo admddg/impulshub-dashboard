@@ -272,6 +272,7 @@ export default function MetaTab({ clientId, period, custom }: {
                 <CreativeImage
                   sources={[c.creative_url, c.image_url, c.thumbnail_url]}
                   alt={title}
+                  sourceIdentity={`${clientId}|${period}|${custom?.start ?? ''}|${custom?.end ?? ''}`}
                   imageClassName="creative-img"
                   fallbackClassName="creative-noimg"
                   onClick={(src) => setZoom({ src, alt: title })}

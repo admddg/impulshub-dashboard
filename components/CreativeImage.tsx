@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
+  creativeImageSourcesKey,
   creativeImageStatusLabel,
-  diagnoseCreativeUrl,
-  type CreativeImageStatus,
+  initialCreativeImageState,
+  nextCreativeImageState,
+  type CreativeImageState,
 } from '@/lib/creative-image'
 
 type CreativeImageProps = {
@@ -12,27 +14,40 @@ type CreativeImageProps = {
   alt: string
   imageClassName: string
   fallbackClassName: string
+  sourceIdentity?: string
   onClick?: (src: string) => void
 }
 
 /**
  * Image boundary for Meta creative URLs. It never rewrites a signed URL and
- * tries the next source only after the current source fails.
+ * tries every later usable source after the current source fails.
  */
 export default function CreativeImage({
   sources,
   alt,
   imageClassName,
   fallbackClassName,
+  sourceIdentity = '',
   onClick,
 }: CreativeImageProps) {
   const candidates = sources.filter((source): source is string => Boolean(source?.trim()))
-  const firstUsable = candidates.findIndex((source) => diagnoseCreativeUrl(source) === 'available')
-  const [index, setIndex] = useState(firstUsable >= 0 ? firstUsable : 0)
-  const [status, setStatus] = useState<CreativeImageStatus>(() =>
-    diagnoseCreativeUrl(candidates[firstUsable >= 0 ? firstUsable : 0]),
-  )
-  const src = candidates[index]
+  const sourcesKey = creativeImageSourcesKey(candidates, sourceIdentity)
+  const [state, setState] = useState<CreativeImageState & { key: string }>(() => ({
+    ...initialCreativeImageState(candidates),
+    key: sourcesKey,
+  }))
+
+  useEffect(() => {
+    if (state.key !== sourcesKey) {
+      setState({ ...initialCreativeImageState(candidates), key: sourcesKey })
+    }
+  }, [candidates, sourcesKey, state.key])
+
+  const activeState = state.key === sourcesKey
+    ? state
+    : { ...initialCreativeImageState(candidates), key: sourcesKey }
+  const src = candidates[activeState.index]
+  const status = activeState.status
 
   if (!src || status !== 'available') {
     const label = creativeImageStatusLabel(status)
@@ -52,13 +67,8 @@ export default function CreativeImage({
       loading="lazy"
       onClick={() => onClick?.(src)}
       onError={() => {
-        const next = index + 1
-        if (next < candidates.length) {
-          setIndex(next)
-          setStatus(diagnoseCreativeUrl(candidates[next]))
-        } else {
-          setStatus('inaccessible')
-        }
+        const next = nextCreativeImageState(candidates, activeState.index)
+        setState({ ...next, key: sourcesKey })
       }}
     />
   )

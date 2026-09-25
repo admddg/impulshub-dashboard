@@ -170,6 +170,7 @@ export default function CardDrawer({
             <CreativeImage
               sources={[card.thumbnail_url]}
               alt={card.ad_name ?? 'Criativo'}
+              sourceIdentity={`${card.client_id}|${card.opportunity_id}`}
               imageClassName="crm-origem-img"
               fallbackClassName="crm-origem-img crm-origem-img-fallback"
             />
