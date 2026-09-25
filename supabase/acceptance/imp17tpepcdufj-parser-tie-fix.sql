@@ -44,7 +44,7 @@ BEGIN
   v_target_inbound_payload := jsonb_build_object(
     'data', jsonb_build_object(
       'Info', jsonb_build_object('Chat', '5511999000012@s.whatsapp.net', 'IsGroup', false,
-                                 'IsFromMe', false, 'PushName', 'tie-target'),
+                                       'IsFromMe', false, 'PushName', 'tie-target', 'ID', 'imp17-target-inbound'),
       'Message', jsonb_build_object(
         'extendedTextMessage', jsonb_build_object(
           'contextInfo', jsonb_build_object('conversionSource', 'FACEBOOK_AD'))),
@@ -52,13 +52,13 @@ BEGIN
   v_target_outbound_payload := jsonb_build_object(
     'data', jsonb_build_object(
       'Info', jsonb_build_object('Chat', '5511999000012@s.whatsapp.net', 'IsGroup', false,
-                                 'IsFromMe', true, 'PushName', 'agent'),
+                                       'IsFromMe', true, 'PushName', 'agent', 'ID', 'imp17-target-outbound'),
       'Message', jsonb_build_object('conversation', 'synthetic outbound target'),
       'text', 'synthetic outbound target'));
   v_other_inbound_payload := jsonb_build_object(
     'data', jsonb_build_object(
       'Info', jsonb_build_object('Chat', '5511999000013@s.whatsapp.net', 'IsGroup', false,
-                                 'IsFromMe', false, 'PushName', 'tie-other'),
+                                       'IsFromMe', false, 'PushName', 'tie-other', 'ID', 'imp17-other-inbound'),
       'Message', jsonb_build_object(
         'extendedTextMessage', jsonb_build_object(
           'contextInfo', jsonb_build_object('conversionSource', 'FACEBOOK_AD'))),
@@ -66,7 +66,7 @@ BEGIN
   v_other_outbound_payload := jsonb_build_object(
     'data', jsonb_build_object(
       'Info', jsonb_build_object('Chat', '5511999000013@s.whatsapp.net', 'IsGroup', false,
-                                 'IsFromMe', true, 'PushName', 'agent'),
+                                       'IsFromMe', true, 'PushName', 'agent', 'ID', 'imp17-other-outbound'),
       'Message', jsonb_build_object('conversation', 'synthetic outbound other'),
       'text', 'synthetic outbound other'));
 
