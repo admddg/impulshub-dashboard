@@ -45,20 +45,20 @@ Tocar em qualquer uma dessas sem tarefa explícita é fora de escopo.
                                       crm ──► n8n 1.1 ──►└──► Meta / Google Conversions
 ```
 
-## Estado em 20/09/2026
+## Estado operacional
 
-Já **em produção** no projeto `Clients_Base` (`mtxnwtqwfagjzkvgsncs`):
+O inventário datado e reconciliado entre GitHub, Supabase, Vercel, n8n e
+ClickUp está em [`docs/STATUS-OPERACIONAL.md`](docs/STATUS-OPERACIONAL.md).
+Ele registra o commit observado, as fontes, o que foi confirmado em produção ou
+staging, o que foi mergeado sem exercício externo e os gates restantes.
 
-| Peça | Estado |
-|---|---|
-| Schema `crm`, 14 tabelas, RLS nas 14 | ✅ |
-| Parser do Stevo | ✅ roda a cada minuto por `pg_cron` |
-| 12 migrations, ledger batendo com o repositório | ✅ |
-| Atribuição de mídia na oportunidade | ✅ `ctwa_clid`, `meta_ad_id`, `conversion_source` |
-| Ponte de conversões (IMP-205) | ✅ aplicada, **inerte** — flag `false` nos 6 clientes |
+No estado reconciliado em 25/09/2026, a aba CRM já está publicada em `main`,
+o parser tie fix está aplicado em produção e o acceptance correspondente em
+staging passou. Os artefatos do IMP-215 permanecem inativos; a ponte continua
+inerte até os gates próprios.
 
-**A aba CRM está pronta em `feat/imp-206-crm-tab` e ainda não foi publicada.**
-Produção roda `b43b805`, sem ela. O banco está à frente do que está no ar.
+Este arquivo conserva regras permanentes de arquitetura e operação. Não use-o
+como inventário diário: para o estado vivo, consulte o status operacional.
 
 Números por cliente e etapas seguintes: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
