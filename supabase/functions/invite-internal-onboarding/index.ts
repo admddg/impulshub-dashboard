@@ -19,9 +19,8 @@ Deno.serve(async (req) => {
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const authorization = req.headers.get("Authorization");
-  if (!supabaseUrl || !anonKey || !serviceKey || !authorization?.startsWith("Bearer ")) {
-    return json({ ok: false, error: "service unavailable" }, 503);
-  }
+  if (!supabaseUrl || !anonKey || !serviceKey) return json({ ok: false, error: "service unavailable" }, 503);
+  if (!authorization?.startsWith("Bearer ")) return json({ ok: false, error: "unauthorized" }, 401);
 
   const token = authorization.slice("Bearer ".length);
   const caller = createClient(supabaseUrl, anonKey, {
