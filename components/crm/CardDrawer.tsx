@@ -10,6 +10,7 @@ import {
 } from '@/lib/crm'
 import { brl } from '@/lib/utils'
 import MoveActions from '@/components/crm/MoveActions'
+import CreativeImage from '@/components/CreativeImage'
 
 // O card aberto (IMP-207): dados, de qual anúncio veio, dono, histórico,
 // conversa e as ações.
@@ -52,13 +53,13 @@ export default function CardDrawer({
   const [carregando, setCarregando] = useState(true)
   const [maisMsgs, setMaisMsgs] = useState(false)
   const [temMaisMsgs, setTemMaisMsgs] = useState(false)
-  const [semImagem, setSemImagem] = useState(false)
+
   const [trocandoDono, setTrocandoDono] = useState(false)
 
   useEffect(() => {
     let alive = true
     setCarregando(true)
-    setSemImagem(false)
+
     Promise.all([
       fetchHistory(card.client_id, card.opportunity_id),
       fetchActivities(card.client_id, card.contact_id),
@@ -166,17 +167,13 @@ export default function CardDrawer({
         <div className="ag-drawer-section">De onde veio este lead</div>
         {temAtribuicao ? (
           <div className="crm-origem">
-            {card.thumbnail_url && !semImagem && (
-              // URL assinada do fbcdn, com validade. Quando expira, some a
-              // imagem e fica o nome do anúncio — melhor que ícone quebrado.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                className="crm-origem-img"
-                src={card.thumbnail_url}
-                alt={card.ad_name ?? 'Criativo'}
-                onError={() => setSemImagem(true)}
-              />
-            )}
+            <CreativeImage
+              sources={[card.thumbnail_url]}
+              alt={card.ad_name ?? 'Criativo'}
+              sourceIdentity={`${card.client_id}|${card.opportunity_id}`}
+              imageClassName="crm-origem-img"
+              fallbackClassName="crm-origem-img crm-origem-img-fallback"
+            />
             <div className="crm-origem-txt">
               {card.campaign_name && <div className="crm-origem-camp">{card.campaign_name}</div>}
               {card.adset_name && <div className="crm-origem-set">{card.adset_name}</div>}

@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { num, brl, int, hiResImg, getRanges, type Period, type CustomRange } from '@/lib/utils'
+import { num, brl, int, getRanges, type Period, type CustomRange } from '@/lib/utils'
 import DataTable, { type Column } from '@/components/DataTable'
 import { HBarChart } from '@/components/Charts'
 import Lightbox from '@/components/Lightbox'
+import CreativeImage from '@/components/CreativeImage'
 import CohortNote from '@/components/CohortNote'
 
 type Sub = 'contas' | 'campanhas' | 'anuncios' | 'criativos'
@@ -128,9 +129,6 @@ export default function MetaTab({ clientId, period, custom }: {
     return [...f].sort(sorters[creativeSort])
   }, [dims.criativos.data, accountFilter, creativeSort])
 
-  function bestImg(r: Row) {
-    return hiResImg(r.creative_url) || r.image_url || hiResImg(r.thumbnail_url)
-  }
 
   function fullFunnelCols(firstHeader: string): Column<Row>[] {
     return [
@@ -264,7 +262,6 @@ export default function MetaTab({ clientId, period, custom }: {
             <div className="table-empty" style={{ gridColumn: '1/-1' }}>Nenhum criativo no período.</div>
           )}
           {creativesFiltered.map((c, i) => {
-            const img = bestImg(c)
             // Hierarquia oficial (contrato banco 16/07):
             // título    → ad_name || creative_name (group_name) || creative_id (group_id)
             // subtítulo → headline quando diferente do título
@@ -272,10 +269,14 @@ export default function MetaTab({ clientId, period, custom }: {
             const subtitle = c.headline && c.headline !== title ? c.headline : null
             return (
               <div className="creative" key={i}>
-                {img
-                  ? <img className="creative-img" src={img} alt={title} loading="lazy"
-                      onClick={() => setZoom({ src: img, alt: title })} />
-                  : <div className="creative-noimg">sem imagem</div>}
+                <CreativeImage
+                  sources={[c.creative_url, c.image_url, c.thumbnail_url]}
+                  alt={title}
+                  sourceIdentity={`${clientId}|${period}|${custom?.start ?? ''}|${custom?.end ?? ''}`}
+                  imageClassName="creative-img"
+                  fallbackClassName="creative-noimg"
+                  onClick={(src) => setZoom({ src, alt: title })}
+                />
                 <div className="creative-body">
                   <div className="creative-adname">{title}</div>
                   {subtitle && <div className="creative-headline">{subtitle}</div>}
