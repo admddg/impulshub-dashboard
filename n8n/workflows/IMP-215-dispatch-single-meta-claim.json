@@ -1,0 +1,349 @@
+{
+  "name": "IMP-215 - Dispatch Single Meta Conversion - Claim Contract",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -432,
+        944
+      ],
+      "id": "bdf76bec-1be1-4099-94d0-06bba1851e56",
+      "name": "When Executed by Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanText(value) {\n  if (value === undefined || value === null) return null;\n  const text = String(value).trim();\n  if (!text || ['null', 'undefined'].includes(text.toLowerCase())) return null;\n  return text;\n}\nconst input = $json || {};\nconst conversionOutboxId = cleanText(input.conversion_outbox_id || input.outbox_id || input.id);\nconst dispatchMode = cleanText(input.dispatch_mode) || 'inline';\nconst claimedAttempt = input.claimed_attempt === undefined || input.claimed_attempt === null\n  ? 0 : Number(input.claimed_attempt);\nif (!conversionOutboxId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversionOutboxId)) throw new Error('valid_conversion_outbox_uuid_required');\nif (!['inline', 'scheduled'].includes(dispatchMode)) throw new Error('invalid_dispatch_mode');\nif (!Number.isInteger(claimedAttempt) || claimedAttempt < 0) throw new Error('invalid_claimed_attempt');\nif (dispatchMode === 'scheduled' && claimedAttempt < 1) throw new Error('scheduled_claim_context_required');\nreturn [{ json: { conversion_outbox_id: conversionOutboxId, dispatch_mode: dispatchMode,\n  claimed_attempt: claimedAttempt, received_input: input } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -192,
+        944
+      ],
+      "id": "b45cadad-6f50-415f-8416-04889f809e6a",
+      "name": "Normalize Dispatch Input"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with input as (\n  select {{ $json.conversion_outbox_id }}::uuid as conversion_outbox_id\n), claimed as (\n  update public.conversion_outbox as claimed_co\n     set status = 'processing',\n         attempts = claimed_co.attempts + 1,\n         next_attempt_at = now() + interval '30 minutes',\n         updated_at = now()\n    from input i\n   where claimed_co.id = i.conversion_outbox_id\n     and '{{ $json.dispatch_mode }}' = 'inline'\n     and claimed_co.platform = 'meta'\n     and claimed_co.status = 'pending'\n     and claimed_co.next_attempt_at <= now()\n     and claimed_co.attempts < 4\n  returning claimed_co.id, claimed_co.attempts as claimed_attempt\n)\nselect\n  co.id as outbox_id,\n  co.normalized_event_id,\n  co.ghl_location_id,\n  co.contact_id,\n  co.event_code,\n  co.platform,\n  co.route,\n  co.meta_event_name,\n  co.payload as outbox_payload,\n  co.status as outbox_status,\n  co.attempts,\n  coalesce(cl.claimed_attempt, {{ $json.claimed_attempt }}) as claimed_attempt,\n  '{{ $json.dispatch_mode }}' as dispatch_mode,\n  co.created_at as outbox_created_at,\n\n  en.raw_event_id,\n  en.received_at,\n  en.event_datetime,\n  en.client_id,\n  en.client_name,\n  en.phone,\n  en.phone_raw,\n  en.email,\n  en.first_name,\n  en.last_name,\n  en.full_name,\n  en.lead_entrada,\n  en.lead_origem,\n  en.ctwa_clid,\n  en.fbp,\n  en.fbc,\n  en.fbclid,\n  en.gclid,\n  en.gbraid,\n  en.wbraid,\n  en.valor_ganho,\n  en.forma_ganho,\n  en.procedimento_ganho,\n  en.source_url,\n  en.source_id,\n  en.payload as normalized_payload,\n\n  nullif(\n    coalesce(\n      co.payload->'attribution'->>'source_id',\n      en.source_id\n    ),\n    ''\n  ) as meta_source_id,\n\n  regexp_replace(coalesce(cb.meta_ad_account_id, ''), '^act_', '') as meta_primary_account_id,\n  meta_source_match.matched_account_id as meta_matched_account_id,\n\n  case\n    when nullif(\n      coalesce(\n        co.payload->'attribution'->>'source_id',\n        en.source_id\n      ),\n      ''\n    ) is null\n      then 'missing_source_id'\n\n    when nullif(regexp_replace(coalesce(cb.meta_ad_account_id, ''), '^act_', ''), '') is null\n      then 'missing_primary_account'\n\n    when meta_source_match.matched_ad_id is null\n      then 'source_not_found'\n\n    when meta_source_match.matched_account_id = regexp_replace(coalesce(cb.meta_ad_account_id, ''), '^act_', '')\n      then 'owned_primary_account'\n\n    else 'other_account'\n  end as meta_source_ownership_status,\n\n  case\n    when meta_source_match.matched_ad_id is not null\n      and meta_source_match.matched_account_id = regexp_replace(coalesce(cb.meta_ad_account_id, ''), '^act_', '')\n      then true\n    else false\n  end as meta_source_owned_by_impuls,\n\n  to_jsonb(cb) as client_config\n\nfrom input i\n\njoin public.conversion_outbox co\n  on co.id = i.conversion_outbox_id\nleft join claimed cl on cl.id = co.id\n\nleft join public.events_normalized en\n  on en.id = co.normalized_event_id\n\nleft join public.clients_base cb\n  on cb.ghl_location_id = co.ghl_location_id\n\nleft join lateral (\n  select\n    regexp_replace(coalesce(m.account_id, ''), '^act_', '') as matched_account_id,\n    m.ad_id as matched_ad_id\n  from public.meta_ads_daily m\n  where m.client_id = en.client_id\n    and m.ad_id = nullif(\n      coalesce(\n        co.payload->'attribution'->>'source_id',\n        en.source_id\n      ),\n      ''\n    )\n  order by m.date desc\n  limit 1\n) meta_source_match on true\n\nwhere co.platform = 'meta'\n  and (\n    ('{{ $json.dispatch_mode }}' = 'inline' and cl.id is not null)\n    or\n    ('{{ $json.dispatch_mode }}' = 'scheduled' and co.status = 'processing'\n      and co.attempts = {{ $json.claimed_attempt }}\n      and co.next_attempt_at > now())\n  )\n\nlimit 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        48,
+        944
+      ],
+      "id": "031cabd6-95e5-4da7-9c46-b3a28bbd3462",
+      "name": "Get Single Meta Outbox",
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * 03 - Build Meta Request v3 Credential\n *\n * Este node NÃO envia para a Meta.\n * Ele valida a linha da conversion_outbox, monta o payload e entrega para o node HTTP Request.\n * O token agora deve vir de uma credencial do n8n no node HTTP:\n * - Credential type: Query Auth\n * - Name: access_token\n * - Value: token da Meta\n */\n\nconst DEFAULT_GRAPH_VERSION = 'v23.0';\n\nfunction pick(...values) {\n  return values.find(value => value !== undefined && value !== null && value !== '') || null;\n}\n\nfunction cleanText(value) {\n  if (value === undefined || value === null) return null;\n\n  const text = String(value).trim();\n\n  const invalidValues = [\n    '',\n    'null',\n    'undefined',\n    'nao identificado',\n    'não identificado',\n    'nao_identificado',\n    'não_identificado',\n    'n/a',\n    'sem informação',\n    'sem informacao'\n  ];\n\n  if (invalidValues.includes(text.toLowerCase())) return null;\n\n  return text;\n}\n\nfunction normalizeKey(value) {\n  const text = cleanText(value);\n  if (!text) return null;\n\n  return text\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .trim()\n    .replace(/\\s+/g, '_')\n    .replace(/-/g, '_')\n    .toLowerCase();\n}\n\nfunction parseBoolean(value, defaultValue = null) {\n  if (value === undefined || value === null || value === '') return defaultValue;\n  if (typeof value === 'boolean') return value;\n\n  const text = normalizeKey(value);\n\n  if (['true', '1', 'yes', 'sim', 'ativo', 'enabled'].includes(text)) return true;\n  if (['false', '0', 'no', 'nao', 'não', 'inativo', 'disabled'].includes(text)) return false;\n\n  return defaultValue;\n}\n\nfunction normalizePhone(value) {\n  const text = cleanText(value);\n  if (!text) return null;\n  const digits = text.replace(/\\D/g, '');\n  return digits || null;\n}\n\nfunction normalizeForHash(value, type = 'text') {\n  const text = cleanText(value);\n  if (!text) return null;\n\n  if (type === 'email') return text.toLowerCase();\n  if (type === 'phone') return normalizePhone(text);\n  if (type === 'name') {\n    return text\n      .normalize('NFD')\n      .replace(/[\\u0300-\\u036f]/g, '')\n      .toLowerCase()\n      .trim();\n  }\n\n  return text.toLowerCase().trim();\n}\n\nasync function sha256(value) {\n  const text = cleanText(value);\n  if (!text) return null;\n\n  function rightRotate(value, amount) {\n    return (value >>> amount) | (value << (32 - amount));\n  }\n\n  const mathPow = Math.pow;\n  const maxWord = mathPow(2, 32);\n  const lengthProperty = 'length';\n\n  let i;\n  let j;\n\n  const result = '';\n  const words = [];\n  const asciiBitLength = text[lengthProperty] * 8;\n\n  let hash = sha256.h = sha256.h || [];\n  let k = sha256.k = sha256.k || [];\n  let primeCounter = k[lengthProperty];\n\n  const isComposite = {};\n\n  for (let candidate = 2; primeCounter < 64; candidate++) {\n    if (!isComposite[candidate]) {\n      for (i = 0; i < 313; i += candidate) {\n        isComposite[i] = candidate;\n      }\n\n      hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;\n      k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;\n    }\n  }\n\n  let message = unescape(encodeURIComponent(text));\n\n  message += '\\x80';\n\n  while (message[lengthProperty] % 64 - 56) {\n    message += '\\x00';\n  }\n\n  for (i = 0; i < message[lengthProperty]; i++) {\n    j = message.charCodeAt(i);\n\n    if (j >> 8) {\n      throw new Error('sha256_invalid_character');\n    }\n\n    words[i >> 2] |= j << (((3 - i) % 4) * 8);\n  }\n\n  words[words[lengthProperty]] = ((asciiBitLength / maxWord) | 0);\n  words[words[lengthProperty]] = asciiBitLength;\n\n  for (j = 0; j < words[lengthProperty];) {\n    const w = words.slice(j, j += 16);\n    const oldHash = hash.slice(0);\n\n    for (i = 0; i < 64; i++) {\n      const w15 = w[i - 15];\n      const w2 = w[i - 2];\n\n      const a = hash[0];\n      const e = hash[4];\n\n      const temp1 = hash[7]\n        + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25))\n        + ((e & hash[5]) ^ ((~e) & hash[6]))\n        + k[i]\n        + (w[i] = (i < 16)\n          ? w[i]\n          : (\n            w[i - 16]\n            + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3))\n            + w[i - 7]\n            + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))\n          ) | 0);\n\n      const temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22))\n        + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));\n\n      hash = [\n        (temp1 + temp2) | 0,\n        hash[0],\n        hash[1],\n        hash[2],\n        (hash[3] + temp1) | 0,\n        hash[4],\n        hash[5],\n        hash[6]\n      ];\n    }\n\n    for (i = 0; i < 8; i++) {\n      hash[i] = (hash[i] + oldHash[i]) | 0;\n    }\n  }\n\n  let hex = '';\n\n  for (i = 0; i < 8; i++) {\n    for (j = 3; j + 1; j--) {\n      const byte = (hash[i] >> (j * 8)) & 255;\n      hex += ((byte < 16) ? '0' : '') + byte.toString(16);\n    }\n  }\n\n  return hex;\n}\n\nasync function hashUserValue(value, type = 'text') {\n  const normalized = normalizeForHash(value, type);\n  if (!normalized) return null;\n  return await sha256(normalized);\n}\n\nfunction unixTimeFrom(value) {\n  const text = cleanText(value);\n  const date = text ? new Date(text) : new Date();\n\n  if (Number.isNaN(date.getTime())) {\n    return Math.floor(Date.now() / 1000);\n  }\n\n  return Math.floor(date.getTime() / 1000);\n}\n\nfunction parseMoney(value) {\n  const cleaned = cleanText(value);\n  if (!cleaned) return null;\n  if (typeof value === 'number') return value;\n\n  const text = String(cleaned)\n    .replace(/[R$\\s]/g, '')\n    .replace(/\\./g, '')\n    .replace(',', '.');\n\n  const number = Number(text);\n  if (Number.isNaN(number)) return null;\n  return number;\n}\n\nfunction isValidCtwaClid(value) {\n  const text = cleanText(value);\n  if (!text) return false;\n  return text.length >= 20;\n}\n\nfunction makeResult(row, finalStatus, lastError, metaResponse = null) {\n  return {\n    json: {\n      should_send_to_meta: false,\n      outbox_id: row?.outbox_id,\n      normalized_event_id: row?.normalized_event_id,\n      event_code: row?.event_code,\n      route: row?.route,\n      meta_event_name: row?.meta_event_name,\n      final_status: finalStatus,\n      last_error: lastError,\n      meta_response: metaResponse || {\n        error: lastError,\n        route: row?.route,\n        meta_event_name: row?.meta_event_name\n      }\n    }\n  };\n}\n\nfunction extractLeadOrigemBucket(row) {\n  return cleanText(\n    pick(\n      row.outbox_payload?.lead_origem_bucket,\n      row.outbox_payload?.routing_checks?.lead_origem_bucket\n    )\n  );\n}\n\nfunction extractLeadEntradaBucket(row) {\n  return cleanText(\n    pick(\n      row.outbox_payload?.lead_entrada_bucket,\n      row.outbox_payload?.routing_checks?.lead_entrada_bucket\n    )\n  );\n}\n\nasync function buildStandardEvent(row, clientConfig, eventTime, eventId, currency) {\n  const userData = {};\n\n  const emailHash = await hashUserValue(\n    pick(row.outbox_payload?.user_data_source?.email, row.email),\n    'email'\n  );\n\n  const phoneHash = await hashUserValue(\n    pick(row.outbox_payload?.user_data_source?.phone, row.phone, row.phone_raw),\n    'phone'\n  );\n\n  const firstNameHash = await hashUserValue(\n    pick(row.outbox_payload?.user_data_source?.first_name, row.first_name),\n    'name'\n  );\n\n  const lastNameHash = await hashUserValue(\n    pick(row.outbox_payload?.user_data_source?.last_name, row.last_name),\n    'name'\n  );\n\n  const externalIdHash = await hashUserValue(\n    pick(row.outbox_payload?.user_data_source?.contact_id, row.contact_id),\n    'text'\n  );\n\n  if (emailHash) userData.em = [emailHash];\n  if (phoneHash) userData.ph = [phoneHash];\n  if (firstNameHash) userData.fn = [firstNameHash];\n  if (lastNameHash) userData.ln = [lastNameHash];\n  if (externalIdHash) userData.external_id = [externalIdHash];\n\n  const fbp = cleanText(pick(row.outbox_payload?.attribution?.fbp, row.fbp));\n  const fbc = cleanText(pick(row.outbox_payload?.attribution?.fbc, row.fbc));\n  const fbclid = cleanText(pick(row.outbox_payload?.attribution?.fbclid, row.fbclid));\n\n  if (fbp) userData.fbp = fbp;\n  if (fbc) userData.fbc = fbc;\n\n  // Compatibilidade legado: ainda construímos fbc quando só há fbclid.\n  // Para novas jornadas web, preferir sempre o _fbc capturado no browser.\n  if (!fbc && fbclid) userData.fbc = `fb.1.${Date.now()}.${fbclid}`;\n\n  const clientIpAddress = cleanText(\n    pick(\n      row.outbox_payload?.attribution?.client_ip_address,\n      row.outbox_payload?.user_data_source?.client_ip_address\n    )\n  );\n\n  const clientUserAgent = cleanText(\n    pick(\n      row.outbox_payload?.attribution?.client_user_agent,\n      row.outbox_payload?.user_data_source?.client_user_agent\n    )\n  );\n\n  if (clientIpAddress) userData.client_ip_address = clientIpAddress;\n  if (clientUserAgent) userData.client_user_agent = clientUserAgent;\n\n  const value = parseMoney(pick(row.outbox_payload?.custom_data?.value, row.valor_ganho));\n\n  const customData = { currency };\n\n  if (row.meta_event_name === 'Purchase') {\n    customData.value = value || 0;\n  } else if (value !== null) {\n    customData.value = value;\n  }\n\n  const procedimento = cleanText(\n    pick(row.outbox_payload?.custom_data?.procedimento_ganho, row.procedimento_ganho)\n  );\n\n  if (procedimento) customData.content_name = procedimento;\n\n  customData.lead_event_source = 'GHL';\n\n  const sourceUrl = cleanText(\n    pick(\n      row.outbox_payload?.attribution?.source_url,\n      row.source_url\n    )\n  );\n\n  // V2.4: resolve o bucket dentro do próprio escopo da função.\n  // Antes, buildStandardEvent() referenciava leadEntradaBucket,\n  // mas essa variável só existia localmente dentro de buildOne().\n  // Em rotas standard isso gerava ReferenceError e encerrava o node\n  // antes de atualizar a outbox/log.\n  const leadEntradaBucket = extractLeadEntradaBucket(row);\n\n  const isWebsiteLead = Boolean(\n    row.event_code === 'lead' &&\n    row.route === 'standard' &&\n    (\n      leadEntradaBucket === 'form_site' ||\n      row.outbox_payload?.attribution?.meta_routing_evidence === 'fbc' ||\n      row.outbox_payload?.attribution?.meta_routing_evidence === 'fbclid'\n    )\n  );\n\n  const event = {\n    event_name: row.meta_event_name,\n    event_time: eventTime,\n    event_id: eventId,\n    action_source: isWebsiteLead ? 'website' : 'system_generated',\n    user_data: userData,\n    custom_data: customData\n  };\n\n  if (sourceUrl) event.event_source_url = sourceUrl;\n\n  return event;\n}\n\nfunction buildWhatsappBusinessMessagingEvent(row, clientConfig, eventTime, eventId, currency) {\n  const ctwaClid = cleanText(pick(row.outbox_payload?.attribution?.ctwa_clid, row.ctwa_clid));\n\n  const pageId = cleanText(\n    pick(\n      clientConfig.meta_page_id,\n      clientConfig.page_id,\n      row.outbox_payload?.attribution?.page_id\n    )\n  );\n\n  const wabaId = cleanText(\n    pick(\n      clientConfig.meta_waba_id,\n      clientConfig.waba_id,\n      clientConfig.whatsapp_business_account_id\n    )\n  );\n\n  const value = parseMoney(pick(row.outbox_payload?.custom_data?.value, row.valor_ganho));\n\n  const customData = { currency };\n\n  if (row.meta_event_name === 'Purchase') {\n    customData.value = value || 0;\n  } else if (value !== null) {\n    customData.value = value;\n  }\n\n  const userData = {\n    ctwa_clid: ctwaClid,\n    page_id: pageId\n  };\n\n  if (wabaId) userData.whatsapp_business_account_id = wabaId;\n\n  return {\n    event_name: row.meta_event_name,\n    event_time: eventTime,\n    event_id: eventId,\n    action_source: 'business_messaging',\n    messaging_channel: 'whatsapp',\n    user_data: userData,\n    custom_data: customData\n  };\n}\n\nasync function buildOne(row) {\n  if (!row?.outbox_id) {\n    return makeResult(row || {}, 'failed', 'outbox_not_found_or_not_pending');\n  }\n\n  const clientConfig = row.client_config || {};\n\n  const metaEnabled = parseBoolean(\n    pick(clientConfig.meta_enabled, clientConfig.enable_meta_tracking),\n    true\n  );\n\n  const standardEnabled = parseBoolean(\n    pick(clientConfig.meta_standard_enabled, clientConfig.enable_meta_tracking),\n    true\n  );\n\n  const whatsappEnabled = parseBoolean(\n    pick(clientConfig.meta_whatsapp_enabled, clientConfig.enable_meta_tracking),\n    true\n  );\n\n  if (!metaEnabled) {\n    return makeResult(row, 'skipped', 'meta_disabled_for_client');\n  }\n\n  if (row.route === 'standard' && !standardEnabled) {\n    return makeResult(row, 'skipped', 'meta_standard_disabled_for_client');\n  }\n\n  if (row.route === 'whatsapp_bm' && !whatsappEnabled) {\n    return makeResult(row, 'skipped', 'meta_whatsapp_disabled_for_client');\n  }\n\n  const leadOrigemBucket = extractLeadOrigemBucket(row);\n  const leadEntradaBucket = extractLeadEntradaBucket(row);\n\n  // V2.1: o Router (1.1) é a camada que decide se o evento pertence à Meta.\n  // O dispatcher apenas valida rota, configuração e matching necessários.\n  // Isso evita duplicar a regra de atribuição em dois workflows.\n\n  const datasetId = cleanText(\n    pick(\n      clientConfig.meta_dataset_id,\n      clientConfig.meta_pixel_id,\n      clientConfig.pixel_id,\n      clientConfig.dataset_id\n    )\n  );\n\n  if (!datasetId) {\n    return makeResult(row, 'failed', 'missing_meta_dataset_id_or_pixel_id');\n  }\n\n  if (row.route === 'whatsapp_bm') {\n    const ownershipStatus = cleanText(row.meta_source_ownership_status);\n    const sourceId = cleanText(row.meta_source_id);\n    const primaryAccountId = cleanText(row.meta_primary_account_id);\n    const matchedAccountId = cleanText(row.meta_matched_account_id);\n\n    const ownershipDetails = {\n      error: null,\n      route: row.route,\n      meta_event_name: row.meta_event_name,\n      source_id: sourceId,\n      ownership_status: ownershipStatus,\n      primary_account_id: primaryAccountId,\n      matched_account_id: matchedAccountId,\n      policy: 'primary_meta_ad_account_only'\n    };\n\n    // Trava de propriedade: eventos WhatsApp BM só são enviados quando\n    // o anúncio pertence à conta Meta primária configurada para o cliente.\n    // Página e ctwa_clid não provam qual agência gerenciou o anúncio.\n    if (ownershipStatus === 'other_account') {\n      ownershipDetails.error = 'meta_source_not_owned_by_impuls';\n      return makeResult(\n        row,\n        'skipped',\n        'meta_source_not_owned_by_impuls',\n        ownershipDetails\n      );\n    }\n\n    if (ownershipStatus === 'missing_source_id') {\n      ownershipDetails.error = 'meta_source_ownership_unverified_missing_source_id';\n      return makeResult(\n        row,\n        'skipped',\n        'meta_source_ownership_unverified_missing_source_id',\n        ownershipDetails\n      );\n    }\n\n    if (ownershipStatus === 'source_not_found') {\n      ownershipDetails.error = 'meta_source_ownership_unverified_source_not_found';\n      ownershipDetails.retry_class = 'ownership_resolution';\n      ownershipDetails.retry_policy = 'wait_for_meta_ads_sync';\n      ownershipDetails.retryable = true;\n\n      return makeResult(\n        row,\n        'pending',\n        'meta_source_ownership_unverified_source_not_found',\n        ownershipDetails\n      );\n    }\n\n    if (ownershipStatus === 'missing_primary_account') {\n      ownershipDetails.error = 'missing_primary_meta_ad_account_id';\n      return makeResult(\n        row,\n        'failed',\n        'missing_primary_meta_ad_account_id',\n        ownershipDetails\n      );\n    }\n\n    if (ownershipStatus !== 'owned_primary_account') {\n      ownershipDetails.error = 'meta_source_ownership_unverified';\n      return makeResult(\n        row,\n        'skipped',\n        'meta_source_ownership_unverified',\n        ownershipDetails\n      );\n    }\n\n    const ctwaClid = cleanText(pick(row.outbox_payload?.attribution?.ctwa_clid, row.ctwa_clid));\n\n    const pageId = cleanText(\n      pick(\n        clientConfig.meta_page_id,\n        clientConfig.page_id,\n        row.outbox_payload?.attribution?.page_id\n      )\n    );\n\n    if (!isValidCtwaClid(ctwaClid)) {\n      return makeResult(row, 'skipped', 'missing_ctwa_clid_for_whatsapp_business_messaging');\n    }\n\n    if (!pageId) {\n      return makeResult(row, 'failed', 'missing_meta_page_id_for_whatsapp_business_messaging');\n    }\n  }\n\n  const currency = cleanText(\n    pick(\n      row.outbox_payload?.custom_data?.currency,\n      clientConfig.default_currency,\n      'BRL'\n    )\n  );\n\n  const graphVersion = cleanText(\n    pick(\n      clientConfig.meta_graph_api_version,\n      DEFAULT_GRAPH_VERSION\n    )\n  );\n\n  const eventTime = unixTimeFrom(\n    pick(\n      row.event_datetime,\n      row.received_at,\n      row.outbox_created_at\n    )\n  );\n\n  const eventId = cleanText(\n    pick(\n      row.outbox_payload?.event_id,\n      ['meta', row.route, row.normalized_event_id, row.event_code].filter(Boolean).join(':')\n    )\n  );\n\n  let event;\n\n  if (row.route === 'whatsapp_bm') {\n    event = buildWhatsappBusinessMessagingEvent(row, clientConfig, eventTime, eventId, currency);\n  } else {\n    event = await buildStandardEvent(row, clientConfig, eventTime, eventId, currency);\n  }\n\n  const requestBody = {\n    data: [event]\n  };\n\n  const testEventCode = cleanText(\n    pick(\n      clientConfig.test_event_code,\n      clientConfig.meta_test_event_code,\n      clientConfig.meta_test_code\n    )\n  );\n\n  if (testEventCode) {\n    requestBody.test_event_code = testEventCode;\n  }\n\n  return {\n    json: {\n      should_send_to_meta: true,\n      outbox_id: row.outbox_id,\n      dispatch_mode: row.dispatch_mode,\n      claimed_attempt: row.claimed_attempt,\n      normalized_event_id: row.normalized_event_id,\n      event_code: row.event_code,\n      route: row.route,\n      meta_event_name: row.meta_event_name,\n      final_status: null,\n      last_error: null,\n      meta_request: {\n        url: `https://graph.facebook.com/${graphVersion}/${datasetId}/events`,\n        request_body: requestBody,\n        graph_version: graphVersion,\n        dataset_id: datasetId\n      }\n    }\n  };\n}\n\nconst rows = [$('Get Single Meta Outbox').first().json];\nconst results = [];\n\nfor (const row of rows) {\n  results.push(await buildOne(row));\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        944
+      ],
+      "id": "8d8b9c9b-8226-4be4-b11e-a30bc23d99ef",
+      "name": "Build Meta Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a8465a98-fb54-46a6-a2ba-b320e2ebd9d1",
+              "leftValue": "={{ $json.should_send_to_meta }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        656,
+        944
+      ],
+      "id": "b032f71e-456b-472d-bf6d-6d8fcdbefc83",
+      "name": "IF Should Send to Meta"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.meta_request.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.meta_request.request_body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        816
+      ],
+      "id": "3553a0d8-eba7-4187-ba4e-734f9907ec5a",
+      "name": "Send Meta Conversion - Credential",
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "lHnJ2K3pphAIRstj",
+          "name": "Meta Agency Token"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Finaliza a resposta do HTTP Request da Meta e transforma no formato usado pelo update da outbox.\n * O token NÃO aparece aqui; ele fica na credencial Query Auth do node HTTP.\n */\n\nfunction cleanText(value) {\n  if (value === undefined || value === null) return null;\n  const text = String(value).trim();\n  if (!text || ['null', 'undefined'].includes(text.toLowerCase())) return null;\n  return text;\n}\n\nfunction pick(...values) {\n  return values.find(value => value !== undefined && value !== null && value !== '') || null;\n}\n\nfunction parseMaybeJson(value) {\n  if (value === undefined || value === null) return {};\n  if (typeof value === 'object') return value;\n\n  try {\n    return JSON.parse(String(value));\n  } catch (error) {\n    return { raw_response: String(value) };\n  }\n}\n\nconst requestItem = $('Build Meta Request').item.json;\nconst http = $json || {};\n\nif (http.error) {\n  return [\n    {\n      json: {\n        outbox_id: requestItem.outbox_id,\n      dispatch_mode: requestItem.dispatch_mode,\n      claimed_attempt: requestItem.claimed_attempt,\n        dispatch_mode: requestItem.dispatch_mode,\n        claimed_attempt: requestItem.claimed_attempt,\n        normalized_event_id: requestItem.normalized_event_id,\n        event_code: requestItem.event_code,\n        route: requestItem.route,\n        meta_event_name: requestItem.meta_event_name,\n        final_status: 'pending',\n        last_error: `network_or_http_node_error: ${http.error.message || http.error}`,\n        meta_response: {\n          error: http.error,\n          request_body: requestItem.meta_request?.request_body || null,\n          graph_version: requestItem.meta_request?.graph_version || null,\n          dataset_id: requestItem.meta_request?.dataset_id || null\n        }\n      }\n    }\n  ];\n}\n\nconst statusCode = Number(\n  pick(\n    http.statusCode,\n    http.status,\n    http.response?.statusCode,\n    http.response?.status,\n    200\n  )\n);\n\nconst responseBody = parseMaybeJson(\n  pick(\n    http.body,\n    http.data,\n    http\n  )\n);\n\nconst eventsReceived = Number(responseBody?.events_received || 0);\nconst hasMetaError = Boolean(responseBody?.error);\n\nif (statusCode >= 200 && statusCode < 300 && eventsReceived >= 1 && !hasMetaError) {\n  return [\n    {\n      json: {\n        outbox_id: requestItem.outbox_id,\n      dispatch_mode: requestItem.dispatch_mode,\n      claimed_attempt: requestItem.claimed_attempt,\n        dispatch_mode: requestItem.dispatch_mode,\n        claimed_attempt: requestItem.claimed_attempt,\n        normalized_event_id: requestItem.normalized_event_id,\n        event_code: requestItem.event_code,\n        route: requestItem.route,\n        meta_event_name: requestItem.meta_event_name,\n        final_status: 'sent',\n        last_error: null,\n        meta_response: {\n          http_status: statusCode,\n          body: responseBody,\n          request_body: requestItem.meta_request?.request_body || null,\n          graph_version: requestItem.meta_request?.graph_version || null,\n          dataset_id: requestItem.meta_request?.dataset_id || null,\n          auth_strategy: 'n8n_http_query_auth_credential'\n        }\n      }\n    }\n  ];\n}\n\nconst metaErrorMessage = cleanText(\n  pick(\n    responseBody?.error?.message,\n    responseBody?.error?.type,\n    responseBody?.raw_response,\n    `http_${statusCode}`\n  )\n);\n\nconst retryable = statusCode === 429 || statusCode >= 500;\n\nreturn [\n  {\n    json: {\n      outbox_id: requestItem.outbox_id,\n      dispatch_mode: requestItem.dispatch_mode,\n      claimed_attempt: requestItem.claimed_attempt,\n      normalized_event_id: requestItem.normalized_event_id,\n      event_code: requestItem.event_code,\n      route: requestItem.route,\n      meta_event_name: requestItem.meta_event_name,\n      final_status: retryable ? 'pending' : 'failed',\n      last_error: `meta_api_error: ${metaErrorMessage}`,\n      meta_response: {\n        http_status: statusCode,\n        body: responseBody,\n        request_body: requestItem.meta_request?.request_body || null,\n        graph_version: requestItem.meta_request?.graph_version || null,\n        dataset_id: requestItem.meta_request?.dataset_id || null,\n        auth_strategy: 'n8n_http_query_auth_credential'\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        816
+      ],
+      "id": "03b23881-84c9-4c10-9a79-7cff1d97ad29",
+      "name": "Finalize Meta Response"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.conversion_outbox\nset\n  status = case\n    when NULLIF('{{ String($json.final_status || \"\").replaceAll(\"'\", \"''\") }}', '') = 'pending'\n      and attempts >= 4\n      then 'failed'\n    else NULLIF('{{ String($json.final_status || \"\").replaceAll(\"'\", \"''\") }}', '')\n  end,\n\n  attempts = attempts,\n\n  response = '{{ JSON.stringify($json.meta_response || {}).replaceAll(\"'\", \"''\") }}'::jsonb,\n\n  last_error = NULLIF('{{ String($json.last_error || \"\").replaceAll(\"'\", \"''\") }}', ''),\n\n  sent_at = case\n    when NULLIF('{{ String($json.final_status || \"\").replaceAll(\"'\", \"''\") }}', '') = 'sent'\n      then now()\n    else sent_at\n  end,\n\n  next_attempt_at = case\n    when NULLIF('{{ String($json.final_status || \"\").replaceAll(\"'\", \"''\") }}', '') in ('sent', 'skipped')\n      then null\n\n    when NULLIF('{{ String($json.final_status || \"\").replaceAll(\"'\", \"''\") }}', '') = 'failed'\n      then null\n\n    when NULLIF('{{ String($json.final_status || \"\").replaceAll(\"'\", \"''\") }}', '') = 'pending'\n      and attempts >= 4\n      then null\n\n    -- O anúncio ainda não apareceu em meta_ads_daily.\n    -- Não chama a Meta; aguarda os próximos ciclos de sync.\n    when NULLIF('{{ String($json.last_error || \"\").replaceAll(\"'\", \"''\") }}', '')\n      = 'meta_source_ownership_unverified_source_not_found'\n      and attempts = 1\n      then now() + interval '6 hours'\n\n    when NULLIF('{{ String($json.last_error || \"\").replaceAll(\"'\", \"''\") }}', '')\n      = 'meta_source_ownership_unverified_source_not_found'\n      and attempts = 2\n      then now() + interval '12 hours'\n\n    when NULLIF('{{ String($json.last_error || \"\").replaceAll(\"'\", \"''\") }}', '')\n      = 'meta_source_ownership_unverified_source_not_found'\n      then now() + interval '24 hours'\n\n    -- Backoff padrão para falhas transitórias da API/transporte.\n    when NULLIF('{{ String($json.final_status || \"\").replaceAll(\"'\", \"''\") }}', '') = 'pending'\n      and attempts = 1\n      then now() + interval '15 minutes'\n\n    when NULLIF('{{ String($json.final_status || \"\").replaceAll(\"'\", \"''\") }}', '') = 'pending'\n      and attempts = 2\n      then now() + interval '1 hour'\n\n    when NULLIF('{{ String($json.final_status || \"\").replaceAll(\"'\", \"''\") }}', '') = 'pending'\n      then now() + interval '6 hours'\n\n    else null\n  end\n\n-- zero rows means stale_result: do not apply an old response or retry HTTP.\nwhere id = '{{ $json.outbox_id }}'::uuid\n  and status = 'processing'\n  and attempts = coalesce(\n    NULLIF('{{ String($json.claimed_attempt || \"\") }}', '')::integer,\n    attempts\n  )\n\nreturning\n  id,\n  normalized_event_id,\n  event_code,\n  route,\n  meta_event_name,\n  status,\n  attempts,\n  last_error,\n  sent_at,\n  next_attempt_at;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1376,
+        944
+      ],
+      "id": "6404a9fd-d857-4b68-9081-15f4d44a67ce",
+      "name": "Update Single Meta Outbox Result",
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into public.workflow_execution_logs (\n  workflow_key,\n  workflow_name,\n  workflow_category,\n  n8n_execution_id,\n  client_id,\n  client_name,\n  ghl_location_id,\n  status,\n  stage,\n  metadata,\n  stages\n)\nvalues (\n  '1.2',\n  '1.2 - Dispatch Single Meta Conversion',\n  'dispatch',\n  '{{ $execution.id }}',\n  NULLIF('{{ String($json.client_id || \"\").replaceAll(\"'\", \"''\") }}', '')::uuid,\n  NULLIF('{{ String($json.client_name || \"\").replaceAll(\"'\", \"''\") }}', ''),\n  NULLIF('{{ String($json.ghl_location_id || \"\").replaceAll(\"'\", \"''\") }}', ''),\n  'running',\n  'outbox_fetched',\n  '{{ JSON.stringify({\n    outbox_id: $json.outbox_id || null,\n    normalized_event_id: $json.normalized_event_id || null,\n    raw_event_id: $json.raw_event_id || null,\n    event_code: $json.event_code || null,\n    platform: \"meta\",\n    route: $json.route || null,\n    meta_source_id: $json.meta_source_id || null,\n    meta_source_ownership_status: $json.meta_source_ownership_status || null,\n    meta_primary_account_id: $json.meta_primary_account_id || null,\n    meta_matched_account_id: $json.meta_matched_account_id || null\n  }).replaceAll(\"'\", \"''\") }}'::jsonb,\n  '{{ JSON.stringify({\n    input: {\n      status: \"ok\",\n      at: new Date().toISOString()\n    },\n    outbox: {\n      status: \"fetched\",\n      at: new Date().toISOString()\n    }\n  }).replaceAll(\"'\", \"''\") }}'::jsonb\n)\nreturning id as workflow_log_id;\n",
+        "options": {}
+      },
+      "id": "089b4d99-ecf9-4e74-b121-797b9cfc6812",
+      "name": "Log Abertura 1.2",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        176,
+        944
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update public.workflow_execution_logs\nset\n  status = 'success',\n  stage = case\n    when NULLIF('{{ String($json.status || \"\").replaceAll(\"'\", \"''\") }}', '') = 'sent'\n      then 'dispatch_sent'\n    when NULLIF('{{ String($json.status || \"\").replaceAll(\"'\", \"''\") }}', '') = 'skipped'\n      then 'dispatch_skipped'\n    when NULLIF('{{ String($json.status || \"\").replaceAll(\"'\", \"''\") }}', '') = 'failed'\n      then 'dispatch_failed_recorded'\n    when NULLIF('{{ String($json.status || \"\").replaceAll(\"'\", \"''\") }}', '') = 'pending'\n      then 'dispatch_retry_scheduled'\n    else 'dispatch_result_recorded'\n  end,\n  finished_at = now(),\n  duration_ms = (extract(epoch from (now() - started_at)) * 1000)::bigint,\n  items_processed = 1,\n  items_failed = 0,\n  error_message = null,\n  error_node = null,\n  metadata = coalesce(metadata, '{}'::jsonb) ||\n    '{{ JSON.stringify({\n      outbox_status: $json.status || null,\n      platform_result_reason: $json.last_error || null,\n      attempts: $json.attempts || null,\n      next_attempt_at: $json.next_attempt_at || null\n    }).replaceAll(\"'\", \"''\") }}'::jsonb,\n  stages = coalesce(stages, '{}'::jsonb) ||\n    '{{ JSON.stringify({\n      result: {\n        status: $json.status || null,\n        reason: $json.last_error || null,\n        attempts: $json.attempts || null,\n        at: new Date().toISOString()\n      }\n    }).replaceAll(\"'\", \"''\") }}'::jsonb\nwhere id = NULLIF(\n  '{{ String($('Log Abertura 1.2').first().json.workflow_log_id || \"\").replaceAll(\"'\", \"''\") }}',\n  ''\n)::uuid\n  and status = 'running'\nreturning\n  id,\n  workflow_key,\n  workflow_name,\n  status,\n  stage,\n  started_at,\n  finished_at,\n  duration_ms,\n  metadata,\n  stages;\n",
+        "options": {}
+      },
+      "id": "bcce5ede-dafa-4b56-b93e-4e7547bda3bc",
+      "name": "Log Fechamento 1.2",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1616,
+        944
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Observabilidade V2 — 1.2 Meta\n\nA abertura e o fechamento do log agora fazem parte do caminho principal.\n\n**Correção crítica**\nO node de abertura não roda mais em paralelo com o processamento. No modo de execução v1, o ramo principal podia chegar ao fechamento antes de o log ser criado; depois o ramo paralelo criava uma linha `running` que nunca era encerrada.\n\n**Novo ciclo**\nGet Single Meta Outbox\n→ Log Abertura 1.2\n→ Build Meta Request\n→ envio/skip\n→ Update Single Meta Outbox Result\n→ Log Fechamento 1.2\n\n**Semântica**\n- `workflow_execution_logs.status = success` quando o dispatcher conclui e registra o resultado.\n- `conversion_outbox.status` continua indicando `sent`, `skipped`, `failed` ou `pending`.\n- Rejeição da Meta registrada na outbox não é tratada como erro técnico do n8n.\n- Erros técnicos inesperados continuam sendo capturados pelo workflow 9.9.\n\n\n### Match Quality V2.1\n- O dispatcher não refaz a decisão de origem Meta; confia no outbox criado pelo 1.1.\n- `client_ip_address` e `client_user_agent` são enviados quando o Router os capturou do `contact.attributionSource`.\n- Lead web em rota `standard` usa `action_source = website`.\n- Agendado/Ganho CRM continuam `action_source = system_generated`.\n- `fbp` enriquece matching, mas não determina roteamento.\n\n\n### Owned Traffic Guard V2.2\nPara a rota `whatsapp_bm`, o dispatcher cruza o `source_id` do evento com\n`meta_ads_daily` e compara o `account_id` encontrado com\n`clients_base.meta_ad_account_id` (conta primária da Impuls).\n\nPolítica:\n- `owned_primary_account` → envia para a Meta;\n- `other_account` → `skipped: meta_source_not_owned_by_impuls`;\n- `missing_source_id` → skipped por propriedade não verificável;\n- `source_not_found` → skipped por propriedade não verificável;\n- `missing_primary_account` → failed por configuração incompleta.\n\nA regra afeta apenas `whatsapp_bm`. Eventos `standard` de website permanecem inalterados.\n\n\n### Safe Retry V2.3\n\nA resolução de propriedade da rota `whatsapp_bm` agora distingue:\n\n- `owned_primary_account`: envia normalmente;\n- `other_account`: `skipped` definitivo, pois pertence a outra conta/agência;\n- `missing_source_id`: `skipped`, pois não há evidência suficiente;\n- `source_not_found`: permanece `pending`, sem chamada à Meta, aguardando\n  o anúncio aparecer em `meta_ads_daily`;\n- `missing_primary_account`: `failed`, pois falta configuração obrigatória.\n\nBackoff específico de `source_not_found`:\n1ª tentativa → +6 horas\n2ª tentativa → +12 horas\n3ª tentativa → +24 horas\n4ª tentativa sem resolução → `failed`\n\nO fallback por Graph API não foi colocado no caminho normal. A estrutura deixa\no motivo identificado em `last_error` e `meta_response.retry_class`, permitindo\nadicionar esse fallback futuramente apenas para exceções.\n\n\n### Standard Route Scope Fix V2.4\n\nCorreção de bug técnico no `Build Meta Request`:\n\n`buildStandardEvent()` usava `leadEntradaBucket` sem declará-lo no próprio\nescopo. A variável existia apenas dentro de `buildOne()`, portanto rotas\n`standard` podiam lançar `ReferenceError: leadEntradaBucket is not defined`\nlogo após `outbox_fetched`.\n\nCorreção:\n- `buildStandardEvent()` resolve `leadEntradaBucket` via\n  `extractLeadEntradaBucket(row)`;\n- o workflow volta a seguir para envio/resultado/update da outbox;\n- o Error Workflow 9.9 foi explicitamente associado ao workflow para capturar\n  futuros erros técnicos inesperados.\n\n\n## IMP-215 claim contract\n- `inline` preserves the existing 1.1 path and request builders/retries.\n- `scheduled` accepts only `processing` plus the exact claimed attempt and lease.\n- stale or terminal rows return zero rows and never reach HTTP.\n- scheduled close does not increment attempts a second time.\n",
+        "height": 300,
+        "width": 420
+      },
+      "id": "0fa52865-296d-4f5a-b1a5-87454e83c4a1",
+      "name": "Sticky Note - Logs",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        48,
+        1216
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Dispatch Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Dispatch Input": {
+      "main": [
+        [
+          {
+            "node": "Get Single Meta Outbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Single Meta Outbox": {
+      "main": [
+        [
+          {
+            "node": "Log Abertura 1.2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Abertura 1.2": {
+      "main": [
+        [
+          {
+            "node": "Build Meta Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Meta Request": {
+      "main": [
+        [
+          {
+            "node": "IF Should Send to Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Should Send to Meta": {
+      "main": [
+        [
+          {
+            "node": "Send Meta Conversion - Credential",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Single Meta Outbox Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Meta Conversion - Credential": {
+      "main": [
+        [
+          {
+            "node": "Finalize Meta Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Meta Response": {
+      "main": [
+        [
+          {
+            "node": "Update Single Meta Outbox Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Single Meta Outbox Result": {
+      "main": [
+        [
+          {
+            "node": "Log Fechamento 1.2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": null,
+  "meta": {
+    "instanceId": "a00c0f84fb4f68f6afbad2bb1b9afe227827f5c4b3d52346ff0dedadf7be8d5b",
+    "imp215_source_export": "1.2 - Dispatch Single Meta Conversion - Observability V2.4 - Standard Route Scope Fix.json",
+    "imp215_original_version": "V2.4"
+  },
+  "nodeGroups": [],
+  "id": null,
+  "tags": []
+}

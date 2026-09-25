@@ -1,0 +1,365 @@
+{
+  "name": "IMP-215 - Scheduled Conversion Outbox Consumer - Claim Lease Dispatch (Inactive)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "imp215-schedule",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = { dry_run: true, dispatch_enabled: false, max_attempts: 4, batch_size: 10, lease_minutes: 30, allowlisted_client_ids: ['3ec294db-a64a-4420-9b4a-0d917f65d399'], cutoff_at_by_client: { '3ec294db-a64a-4420-9b4a-0d917f65d399': '2026-09-23T17:59:28.277Z' } };\nif (!config.allowlisted_client_ids.length) throw new Error('allowlist_required');\nfor (const id of config.allowlisted_client_ids) { if (!config.cutoff_at_by_client[id]) throw new Error('cutoff_required:' + id); }\nreturn [{ json: config }];"
+      },
+      "id": "imp215-config",
+      "name": "Validate Versioned Allowlist and Cutoff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- READ ONLY candidate query. No claim or HTTP occurs while dry_run=true.\nwith cfg(client_id, cutoff_at) as (\n  select * from jsonb_each_text('{{ JSON.stringify($json.cutoff_at_by_client).replaceAll(\"'\", \"''\") }}'::jsonb)\n), candidates as (\n  select co.id, co.platform, co.status, co.attempts, co.created_at, en.client_id, cfg.cutoff_at::timestamptz\n  from public.conversion_outbox co\n  join public.events_normalized en on en.id = co.normalized_event_id\n  join cfg on cfg.client_id::uuid = en.client_id\n  where en.source_system = 'impuls_crm'\n    and en.client_id in (select value::uuid from jsonb_array_elements_text('{{ JSON.stringify($json.allowlisted_client_ids).replaceAll(\"'\", \"''\") }}'::jsonb) as allowlist(value))\n    and co.status = 'pending'\n    and co.created_at >= cfg.cutoff_at::timestamptz\n    and co.next_attempt_at <= now()\n    and co.attempts < {{ $json.max_attempts }}\n  order by co.created_at, co.id\n  limit {{ $json.batch_size }}\n) select * from candidates;"
+      },
+      "id": "imp215-candidates",
+      "name": "Read Eligible Candidates (Dry Run)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      },
+      "position": [
+        460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all()\n  .map(item => item.json)\n  .filter(row => row && row.id);\nreturn [{ json: { dry_run: $('Validate Versioned Allowlist and Cutoff').first().json.dry_run, candidate_count: rows.length, by_platform: rows.reduce((a, r) => { a[r.platform] = (a[r.platform] || 0) + 1; return a; }, {}), sample_ids: rows.slice(0, 10).map(r => r.id), claim_sql_gate: 'disabled until dry_run=false and live n8n gate is approved' } }];"
+      },
+      "id": "imp215-dryrun",
+      "name": "Dry Run Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Guarded claim; this node is reachable only after dry_run=false and dispatch_enabled=true.\nwith candidates as (\n  select co.id\n  from public.conversion_outbox co\n  join public.events_normalized en on en.id = co.normalized_event_id\n  where en.source_system = 'impuls_crm'\n    and en.client_id in (select value::uuid from jsonb_array_elements_text('{{ JSON.stringify($json.allowlisted_client_ids).replaceAll(\"'\", \"''\") }}'::jsonb) as allowlist(value))\n    and co.platform in ('meta', 'google_ads')\n    and co.status = 'pending'\n    and co.created_at >= (('{{ JSON.stringify($json.cutoff_at_by_client).replaceAll(\"'\", \"''\") }}'::jsonb ->> en.client_id::text)::timestamptz)\n    and co.next_attempt_at <= now()\n    and co.attempts < {{ $json.max_attempts }}\n  order by co.created_at, co.id\n  limit {{ $json.batch_size }}\n  for update skip locked\n), claimed as (\n  update public.conversion_outbox co\n     set status = 'processing', attempts = co.attempts + 1,\n         next_attempt_at = now() + ({{ $json.lease_minutes }} || ' minutes')::interval, updated_at = now()\n    from candidates c where co.id = c.id\n  returning co.id, co.platform, co.attempts as claimed_attempt\n) select * from claimed;"
+      },
+      "id": "imp215-claim",
+      "name": "Claim Eligible Outbox Rows",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        700,
+        220
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Validate Versioned Allowlist and Cutoff').first().json.dry_run }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            },
+            {
+              "leftValue": "={{ $('Validate Versioned Allowlist and Cutoff').first().json.dispatch_enabled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "imp215-kill-switch",
+      "name": "Dispatch Kill Switch (OFF)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "GuJOyCaF93i7ps8l",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/GuJOyCaF93i7ps8l",
+          "cachedResultName": "IMP-215 - Dispatch Single Meta Conversion - Claim Contract"
+        },
+        "mode": "list",
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "outbox_id": "={{ $json.id }}",
+            "platform": "={{ $json.platform }}",
+            "dispatch_mode": "scheduled",
+            "claimed_attempt": "={{ $json.claimed_attempt }}"
+          }
+        }
+      },
+      "id": "imp215-dispatch-meta",
+      "name": "Execute Workflow - Meta Child (Guarded)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1180,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "VLzVbZaFqeKa0JJr",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/VLzVbZaFqeKa0JJr",
+          "cachedResultName": "IMP-215 - Dispatch Single Google Conversion - Claim Contract"
+        },
+        "mode": "list",
+        "options": {
+          "waitForSubWorkflow": false
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "outbox_id": "={{ $json.id }}",
+            "platform": "={{ $json.platform }}",
+            "dispatch_mode": "scheduled",
+            "claimed_attempt": "={{ $json.claimed_attempt }}"
+          }
+        }
+      },
+      "id": "imp215-dispatch-google",
+      "name": "Execute Workflow - Google Child (Guarded)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.platform }}",
+              "rightValue": "meta",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "imp215-platform-meta",
+      "name": "Route Meta Platform",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        940,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.platform }}",
+              "rightValue": "google_ads",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "imp215-platform-google",
+      "name": "Route Google Platform",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        940,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Versioned Allowlist and Cutoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Versioned Allowlist and Cutoff": {
+      "main": [
+        [
+          {
+            "node": "Read Eligible Candidates (Dry Run)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Dispatch Kill Switch (OFF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Eligible Candidates (Dry Run)": {
+      "main": [
+        [
+          {
+            "node": "Dry Run Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry Run Report": {
+      "main": [
+        []
+      ]
+    },
+    "Dispatch Kill Switch (OFF)": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Claim Eligible Outbox Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Eligible Outbox Rows": {
+      "main": [
+        [
+          {
+            "node": "Route Meta Platform",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route Google Platform",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Meta Platform": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Meta Child (Guarded)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Route Google Platform": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Google Child (Guarded)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": null,
+  "meta": {
+    "imp215": "claim/lease/closure contract; inactive; dry_run=true; dispatch_enabled=false",
+    "external_send": false
+  },
+  "id": null
+}
