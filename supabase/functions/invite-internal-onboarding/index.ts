@@ -67,28 +67,58 @@ Deno.serve(async (req) => {
   let invited = 0;
   let failed = 0;
   for (const user of pending ?? []) {
-    const { data: invitedUser, error: inviteError } = await db.auth.admin.inviteUserByEmail(user.email, {
-      data: { onboarding_id: onboardingId, onboarding_profile: user.profile },
-    });
-    let authUser = invitedUser.user;
-    if (inviteError || !authUser) {
-      const existing = await db.auth.admin.listUsers({ page: 1, perPage: 1000 });
-      authUser = existing.data?.users.find((candidate) => candidate.email?.toLowerCase() === user.email.toLowerCase()) ?? null;
-    }
-    if (!authUser) {
-      failed += 1;
-      continue;
-    }
+    try {
+      const { data: invitedUser, error: inviteError } = await db.auth.admin.inviteUserByEmail(user.email, {
+        data: { onboarding_id: onboardingId, onboarding_profile: user.profile },
+      });
+      let authUser = invitedUser?.user ?? null;
+      if (inviteError || !authUser) {
+        console.error(JSON.stringify({
+          event: "invite_user_failed_or_existing",
+          onboarding_id: onboardingId,
+          onboarding_user_id: user.id,
+          error: inviteError?.message ?? "no user returned",
+        }));
+        const existing = await db.auth.admin.listUsers({ page: 1, perPage: 1000 });
+        if (existing.error) {
+          console.error(JSON.stringify({
+            event: "list_auth_users_failed",
+            onboarding_id: onboardingId,
+            onboarding_user_id: user.id,
+            error: existing.error.message,
+          }));
+        }
+        authUser = existing.data?.users.find((candidate) => candidate.email?.toLowerCase() === user.email.toLowerCase()) ?? null;
+      }
+      if (!authUser) {
+        failed += 1;
+        continue;
+      }
 
-    const { error: linkError } = await caller.rpc("link_internal_onboarding_user", {
-      p_onboarding_user_id: user.id,
-      p_auth_user_id: authUser.id,
-    });
-    if (linkError) {
+      const { error: linkError } = await caller.rpc("link_internal_onboarding_user", {
+        p_onboarding_user_id: user.id,
+        p_auth_user_id: authUser.id,
+      });
+      if (linkError) {
+        console.error(JSON.stringify({
+          event: "link_internal_onboarding_user_failed",
+          onboarding_id: onboardingId,
+          onboarding_user_id: user.id,
+          error: linkError.message,
+        }));
+        failed += 1;
+        continue;
+      }
+      invited += 1;
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "invite_user_unhandled_error",
+        onboarding_id: onboardingId,
+        onboarding_user_id: user.id,
+        error: error instanceof Error ? error.message : "unknown error",
+      }));
       failed += 1;
-      continue;
     }
-    invited += 1;
   }
 
   return json({ ok: failed === 0, invited, failed });

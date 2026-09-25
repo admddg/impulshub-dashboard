@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
   EMPTY_ONBOARDING_FORM, onboardingPayload, validateOnboarding,
@@ -22,7 +22,44 @@ export default function OnboardingPage() {
   const [errors, setErrors] = useState<string[]>([])
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
+  const [pendingOnboardings, setPendingOnboardings] = useState<Array<{ id: string; clientName: string; pending: number }>>([])
+  const [retryingId, setRetryingId] = useState('')
 
+  async function loadPendingOnboardings() {
+    const { data: onboardings } = await supabase
+      .from('internal_onboardings')
+      .select('id, client_id, created_at')
+      .order('created_at', { ascending: false })
+      .limit(10)
+    const ids = (onboardings ?? []).map((item) => item.id)
+    if (!ids.length) { setPendingOnboardings([]); return }
+    const [{ data: clients }, { data: users }] = await Promise.all([
+      supabase.from('clients_base').select('id, client_name').in('id', onboardings?.map((item) => item.client_id) ?? []),
+      supabase.from('internal_onboarding_users').select('onboarding_id').in('onboarding_id', ids).eq('invite_status', 'pending_auth'),
+    ])
+    const clientNames = new Map((clients ?? []).map((client) => [client.id, client.client_name]))
+    const counts = new Map<string, number>()
+    for (const user of users ?? []) counts.set(user.onboarding_id, (counts.get(user.onboarding_id) ?? 0) + 1)
+    setPendingOnboardings((onboardings ?? []).filter((item) => counts.has(item.id)).map((item) => ({
+      id: item.id,
+      clientName: clientNames.get(item.client_id) ?? 'Cliente sem nome',
+      pending: counts.get(item.id) ?? 0,
+    })))
+  }
+
+  useEffect(() => { void loadPendingOnboardings() }, [])
+
+  async function retryInvites(onboardingId: string) {
+    setRetryingId(onboardingId)
+    const { data, error } = await supabase.functions.invoke('invite-internal-onboarding', { body: { onboarding_id: onboardingId } })
+    setRetryingId('')
+    if (error || !data?.ok) {
+      setMessage('Não foi possível reenviar os convites. O cadastro permanece salvo e o erro foi registrado para diagnóstico.')
+    } else {
+      setMessage(`${data.invited} convite(s) reenviado(s).`)
+    }
+    await loadPendingOnboardings()
+  }
   function set<K extends keyof OnboardingForm>(key: K, value: OnboardingForm[K]) {
     setForm((current) => ({ ...current, [key]: value }))
   }
@@ -56,6 +93,15 @@ export default function OnboardingPage() {
 
   return <div>
     <div className="pagehead tight"><div><h1>Novo onboarding</h1><div className="sub">Um envio cria o cliente, registra os dados legais e prepara as contas individuais.</div></div></div>
+    {pendingOnboardings.length > 0 && <section className="block" style={{ padding: 22, marginBottom: 22 }}>
+      <div className="block-head"><span className="block-title">Convites pendentes</span><span className="block-sub">Reenvie sem criar outro cliente ou preencher o formulário novamente.</span></div>
+      <div style={{ display: 'grid', gap: 10 }}>
+        {pendingOnboardings.map((onboarding) => <div key={onboarding.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>{onboarding.clientName} — {onboarding.pending} usuário(s) pendente(s)</span>
+          <button type="button" className="sortbtn" onClick={() => retryInvites(onboarding.id)} disabled={retryingId !== ''}>{retryingId === onboarding.id ? 'Reenviando…' : 'Reenviar convites'}</button>
+        </div>)}
+      </div>
+    </section>}
     <form onSubmit={submit} style={{ display: 'grid', gap: 22, maxWidth: 1040 }}>
       <section className="block" style={{ padding: 22 }}><div className="block-head"><span className="block-title">Identidade da operação</span><span className="block-sub">Dados usados no painel e na identificação interna</span></div><div style={gridStyle}>
         <Field label="Nome de operação" value={form.clientName} onChange={(v) => set('clientName', v)} required />
