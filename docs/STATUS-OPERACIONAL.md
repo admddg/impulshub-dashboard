@@ -1,111 +1,90 @@
 # Status operacional
 
 **Fonte de verdade operacional do projeto.** Reconciliado em **25/09/2026**,
-partindo de `origin/main` no commit **`53b1ad09ad414a1f4cf693bcbc1db25bc060f0cc`**.
+partindo de `origin/main` no commit **`d4f37a42c80c67d7ced6ad4a9bc72336d23c2464`**.
 
-Este documento registra o estado observado entre GitHub, Supabase, Vercel, n8n
-e ClickUp. Ele não substitui o [ROADMAP](ROADMAP.md): o ROADMAP continua sendo
-direção de produto; este arquivo é o inventário operacional datado. Nenhuma
-migration, flag, DNS, código de produção ou workflow de produção foi alterado
-nesta reconciliação.
+Este documento separa estado verificado de relato. Não substitui o ROADMAP e não
+inclui onboarding, criativos ou os clientes Royal, Central e QuickClean.
 
 ## Resumo executivo
 
-- `main` contém os PRs **#25, #26, #27 e #29**, todos mergeados.
-- A correção do empate de timestamps do parser está em `main`, foi aplicada em
-  produção e o acceptance correspondente em staging foi **PASS**.
-- O parser continua ativo por cron; as últimas execuções observadas foram
-  `succeeded`.
-- Não há mensagens brutas elegíveis da Impuls para envio: **0**.
-- Os artefatos de workflow do **IMP-215** estão versionados no n8n, porém
-  **inativos**. O primeiro envio externo do IMP-215 ainda não ocorreu.
-- O projeto Vercel é `impulshub-painel` e a URL de produção é
-  [`https://painel.impulshub.com`](https://painel.impulshub.com).
-- O domínio oficial da operação é [`impulshub.com`](https://impulshub.com).
-  `painel.impulshub.com.br` foi um endereço incorreto e não é oficial.
+- A correção de empate de timestamps do parser está em `main`, aplicada em
+  produção; o cron está saudável e o backlog elegível da Impuls é **0**.
+- O staging foi alinhado à migration `20260927000000_imp229_rls_client_ids.sql`.
+  O Overview medido em transação read-only ficou em **157.419 ms** e a repetição
+  em **61.458 ms**, ambas abaixo de 8 s.
+- O consumidor IMP-215 está ativo somente para a allowlist da Impuls,
+  `dry_run=false` e `dispatch_enabled=true`. A execução 17057 terminou com
+  `candidate_count=0`; não houve claim, child execution, HTTP/validateOnly ou
+  closure.
+- Onboarding está explicitamente fora desta onda.
 
 ## Confirmado em produção
 
 | Área | Estado confirmado | Evidência / data |
 |---|---|---|
-| GitHub | `main` em `53b1ad0` (SHA completo no cabeçalho) com PRs #25/#26/#27/#29 mergeados | GitHub, leitura em 25/09/2026: [#25](https://github.com/admddg/impulshub-dashboard/pull/25), [#26](https://github.com/admddg/impulshub-dashboard/pull/26), [#27](https://github.com/admddg/impulshub-dashboard/pull/27), [#29](https://github.com/admddg/impulshub-dashboard/pull/29) |
-| Vercel | Projeto `impulshub-painel`; produção em `https://painel.impulshub.com` | Inspeção somente leitura do projeto/deployment em 25/09/2026 |
-| Parser | Correção de empate de `stage_history` aplicada em produção | PR #26 mergeado em `53b1ad0`; runbook e evidência em [`docs/incidentes/RUNBOOK-PRODUCAO-17TPEPCDUFJ.md`](incidentes/RUNBOOK-PRODUCAO-17TPEPCDUFJ.md) |
-| Parser cron | Ativo; últimas execuções observadas como `succeeded` | Verificação somente leitura do cron/execuções em 25/09/2026 |
-| Raw elegível | Mensagens `Impuls` elegíveis para o caminho de conversão: **0** | Leitura operacional somente leitura em 25/09/2026 |
-| Envio externo IMP-215 | Ainda não ocorreu | n8n inativo e sem ativação autorizada; ver bloqueios |
+| GitHub | `main` em `d4f37a4` com PRs #25/#26/#27/#29/#31 mergeados | GitHub, leitura em 25/09/2026 |
+| Parser | Tie fix de `stage_history` aplicado | PR #26 e runbook `docs/incidentes/RUNBOOK-PRODUCAO-17TPEPCDUFJ.md` |
+| Parser cron | Ativo; últimas execuções observadas como `succeeded` | leitura operacional somente leitura em 25/09/2026 |
+| Raw elegível Impuls | **0** mensagens elegíveis | leitura operacional somente leitura em 25/09/2026 |
+| IMP-215 | Allowlist contém somente `3ec294db-a64a-4420-9b4a-0d917f65d399`; ciclo 17057 sem candidatos | GET/readback n8n e execução 17057 |
 
-### Correções documentais de produção
-
-- A referência antiga a um commit de produção anterior ao CRM publicado não é
-  mais válida. O estado atual deve ser lido pelo commit do cabeçalho e pela
-  URL oficial acima.
-- O domínio oficial não é `.com.br`. Não usar `painel.impulshub.com.br` em
-  links, instruções de acesso ou critérios de aceite.
+Não foram limpos dados históricos e não foram alteradas flags de produção fora
+do escopo já autorizado do IMP-215.
 
 ## Confirmado em staging
 
-| Item | Estado confirmado | Evidência / data |
+| Item | Estado confirmado | Evidência |
 |---|---|---|
-| Parser tie fix | Acceptance **PASS** em staging | [`supabase/acceptance/imp17tpepcdufj-parser-tie-fix.sql`](../supabase/acceptance/imp17tpepcdufj-parser-tie-fix.sql), PR [#26](https://github.com/admddg/impulshub-dashboard/pull/26) |
-| Segurança do IMP-215 | Harness/claim/lease e fechamento protegido provados em staging conforme evidência do PR | PR [#25](https://github.com/admddg/impulshub-dashboard/pull/25) |
-| Efeito colateral | Nenhuma fixture de acceptance deve persistir; não houve escrita em produção nesta entrega | [`docs/incidentes/RUNBOOK-PRODUCAO-17TPEPCDUFJ.md`](incidentes/RUNBOOK-PRODUCAO-17TPEPCDUFJ.md) |
+| IMP-229 | Migration de `origin/main` aplicada no staging `nfratueiutxnypbxfnmi` | `20260927000000_imp229_rls_client_ids.sql` |
+| Overview | 1 linha; 157.419 ms, repetição 61.458 ms | [`docs/evidence/IMP-229-FINAL-READONLY-2026-09-25.md`](evidence/IMP-229-FINAL-READONLY-2026-09-25.md) |
+| Medição | `BEGIN READ ONLY`, papel `authenticated`, claims sintéticas e `ROLLBACK` | evidência acima |
+| Parser tie fix | Acceptance PASS anterior | `supabase/acceptance/imp17tpepcdufj-parser-tie-fix.sql` |
+| IMP-215 contrato | Harness local passa 6/6 no artefato versionado | `n8n/acceptance/imp215_contract_harness.py` |
 
-"PASS em staging" não significa envio externo nem ativação em n8n de produção.
+A medição do Overview não escreveu dados. A única escrita desta frente foi a
+migration autorizada no staging para alinhar o ambiente ao `origin/main`.
 
-## Mergeado, mas não exercitado como operação externa
+## IMP-215: canário e limite da evidência
 
-- **IMP-215:** o contrato claim/dispatcher, o consumidor agendado e os
-  dispatchers Meta/Google estão versionados e protegidos, mas permanecem
-  inativos. O caminho externo não foi exercitado.
-- **PR #27:** a fronteira de fallback de criativos foi mergeada. O refresh
-  operacional de URLs/ativos de criativos é separado e não foi executado por
-  este trabalho.
-- **PR #29:** a separação dos typechecks do app e da Edge Function foi
-  mergeada; isso é uma correção de CI, não uma prova de envio externo.
+O readback do workflow `AHT6ltpnxdC29QCC` confirmou `active=true`,
+`dry_run=false`, `dispatch_enabled=true`, `max_attempts=4`, `batch_size=10`,
+lease de 30 minutos e allowlist exclusiva da Impuls. A execução 17057 confirmou:
 
-## Bloqueios e incertezas reais
+- `candidate_count=0`, `sample_ids=[]`;
+- claim node executado sem linhas;
+- rotas Meta e Google receberam item vazio e não chamaram child workflow;
+- não há evidência de HTTP Meta, Google `validateOnly`, fechamento ou readback de
+  uma linha, porque nenhum candidato foi reivindicado.
 
-1. **IMP-229** ainda depende de medição de staging alinhada antes de ser
-   considerado encerrado operacionalmente. O código mergeado não substitui a
-   medição comparável.
-2. **Refresh operacional de criativos** é um gate separado do fallback de UI
-   do PR #27. Não declarar URLs renovadas sem executar e medir esse processo.
-3. **Primeiro envio externo do IMP-215** não ocorreu. Não ligar workflows,
-   flags ou consumidores para transformar `0` em envio sem autorização e gate
-   específico.
-4. O status do n8n não autoriza inferir que uma execução `succeeded` de um
-   workflow existente equivale a entrega externa do IMP-215.
+Isso confirma o ciclo vazio e a proteção contra históricos, mas **não fecha o
+canário E2E**. Não inventar fixture de produção, não reabrir eventos históricos
+e não marcar IMP-215 como concluído sem candidato novo elegível da Impuls.
 
-## Próximos gates
+## Fechamento por frente
 
-1. Registrar a medição de staging alinhada que falta para o IMP-229.
-2. Definir e revisar o corte/allowlist do primeiro canário do IMP-215.
-3. Obter autorização explícita para ativação controlada, executar o acceptance
-   aplicável e observar o primeiro envio externo sem reabrir linhas antigas.
-4. Tratar o refresh operacional de criativos como tarefa própria, com evidência
-   separada do fallback de interface.
-5. Atualizar este documento com data, commit e evidência após cada gate; não
-   usar o ROADMAP como inventário diário.
+- **Parser:** pode ser marcado concluído; tie fix, cron `succeeded` e elegibilidade
+  Impuls 0 foram reconciliados. Dados históricos permanecem intactos.
+- **IMP-229:** pode ser marcado concluído; staging alinhado e medição read-only
+  abaixo de 8 s estão registrados.
+- **IMP-215:** permanece em `in progress`; o ciclo real foi seguro e vazio, mas
+  claim/child/HTTP/validateOnly/closure não foram exercitados.
+- **Onboarding:** fora do escopo e não deve ser alterado ou marcado nesta onda.
 
-## Fontes consultadas
+## ClickUp e fontes externas
 
-- GitHub: `origin/main` em `53b1ad09ad414a1f4cf693bcbc1db25bc060f0cc` e PRs
-  [#25](https://github.com/admddg/impulshub-dashboard/pull/25),
-  [#26](https://github.com/admddg/impulshub-dashboard/pull/26),
-  [#27](https://github.com/admddg/impulshub-dashboard/pull/27) e
-  [#29](https://github.com/admddg/impulshub-dashboard/pull/29), leitura em
-  25/09/2026.
-- Supabase `Clients_Base` (`mtxnwtqwfagjzkvgsncs`): leituras operacionais do
-  parser, cron e elegibilidade raw; nenhum comando mutável foi executado nesta
-  reconciliação.
-- Supabase staging: acceptance e evidências versionadas em
-  [`supabase/acceptance`](../supabase/acceptance).
-- Vercel: projeto `impulshub-painel` e deployment de produção, leitura em
-  25/09/2026.
-- n8n: leitura de workflows e execuções em 25/09/2026. Os três artefatos
-  `IMP-215` foram encontrados com `active=false`; workflows existentes de
-  entrada/dispatch reportaram execuções recentes `success`.
-- ClickUp: tarefa `ETAPA 5 — IMP-215 — Ninguém consome a conversion_outbox`
-  em `in progress` e tarefa `IMP-229 — Overview estourava o timeout de 8 s`
-  em `in progress`, leitura em 25/09/2026.
+- IMP-215: `86akmdj5n`, lida como `in progress`; não fechar.
+- IMP-229: `86akmvamd`, lida como `in progress`; atualizar para `complete` com a
+  evidência desta documentação e fazer readback.
+- Parser: atualizar a tarefa correspondente apenas após localizar o ID exato;
+  não inferir por nome ou por busca textual ampla.
+- Criativos continuam em sessão separada.
+
+## Evidências consultadas
+
+- GitHub `origin/main` em `d4f37a42c80c67d7ced6ad4a9bc72336d23c2464`.
+- Supabase staging `nfratueiutxnypbxfnmi`: migration de IMP-229 e EXPLAIN
+  read-only do Overview; produção `mtxnwtqwfagjzkvgsncs` não foi alvo de escrita.
+- n8n: workflow `AHT6ltpnxdC29QCC`, filhos `GuJOyCaF93i7ps8l` e
+  `VLzVbZaFqeKa0JJr`, execução 17057.
+- ClickUp: tarefas `86akmdj5n` e `86akmvamd`, leitura em 25/09/2026.
