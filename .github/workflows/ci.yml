@@ -22,8 +22,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck
-        run: npx tsc --noEmit
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Typecheck app
+        run: npm run typecheck
+
+      - name: Typecheck Edge Functions
+        run: npm run typecheck:deno
 
       - name: Run tests
         run: node --test lib/*.test.mjs
