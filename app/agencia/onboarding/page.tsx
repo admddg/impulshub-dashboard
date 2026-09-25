@@ -44,8 +44,13 @@ export default function OnboardingPage() {
     const { data, error } = await supabase.rpc('create_internal_onboarding', onboardingPayload(form))
     setSaving(false)
     if (error) { setMessage(error.message.includes('FORBIDDEN') ? 'Sua conta não tem permissão para criar onboarding.' : 'Não foi possível salvar o onboarding. Confira os dados e tente novamente.'); return }
+    const { data: inviteData, error: inviteError } = await supabase.functions.invoke('invite-internal-onboarding', { body: { onboarding_id: data?.onboarding_id } })
     setErrors([])
-    setMessage(`Onboarding salvo. ${data?.pending_auth_users ?? 0} usuário(s) aguardam convite individual no Auth.`)
+    if (inviteError || !inviteData?.ok) {
+      setMessage(`Onboarding salvo, mas os convites não foram enviados. ${data?.pending_auth_users ?? 0} usuário(s) continuam pendentes; tente o convite novamente pelo fluxo administrativo.`)
+    } else {
+      setMessage(`Onboarding salvo. ${inviteData.invited} convite(s) individual(is) enviado(s).`)
+    }
     setForm(EMPTY_ONBOARDING_FORM)
   }
 

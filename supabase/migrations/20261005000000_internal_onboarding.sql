@@ -42,13 +42,26 @@ create table public.internal_onboarding_users (
   unique (onboarding_id, email)
 );
 
+create table public.internal_onboarding_audit (
+  id uuid primary key default pg_catalog.gen_random_uuid(),
+  onboarding_id uuid not null references public.internal_onboardings(id) on delete cascade,
+  client_id uuid not null references public.clients_base(id) on delete restrict,
+  actor_id uuid not null references auth.users(id) on delete restrict,
+  action text not null check (action in ('created', 'invite_sent')),
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default pg_catalog.now()
+);
+
 alter table public.internal_onboardings enable row level security;
 alter table public.internal_onboarding_users enable row level security;
-revoke all on table public.internal_onboardings, public.internal_onboarding_users from public, anon, authenticated;
-grant select on table public.internal_onboardings, public.internal_onboarding_users to authenticated;
+alter table public.internal_onboarding_audit enable row level security;
+revoke all on table public.internal_onboardings, public.internal_onboarding_users, public.internal_onboarding_audit from public, anon, authenticated;
+grant select on table public.internal_onboardings, public.internal_onboarding_users, public.internal_onboarding_audit to authenticated;
 create policy internal_onboardings_agency_select on public.internal_onboardings
   for select to authenticated using (exists (select 1 from public.client_users cu where cu.user_id = (select auth.uid()) and cu.role = 'agency' and cu.is_active));
 create policy internal_onboarding_users_agency_select on public.internal_onboarding_users
+  for select to authenticated using (exists (select 1 from public.client_users cu where cu.user_id = (select auth.uid()) and cu.role = 'agency' and cu.is_active));
+create policy internal_onboarding_audit_agency_select on public.internal_onboarding_audit
   for select to authenticated using (exists (select 1 from public.client_users cu where cu.user_id = (select auth.uid()) and cu.role = 'agency' and cu.is_active));
 
 create or replace function public.create_internal_onboarding(
@@ -96,6 +109,7 @@ begin
     select 1 from public.client_users cu where cu.user_id = v_actor and cu.role = 'agency' and cu.is_active
   ) then raise exception 'ONBOARDING_FORBIDDEN'; end if;
   if p_users is null or jsonb_typeof(p_users) <> 'array' then raise exception 'ONBOARDING_USERS_REQUIRED'; end if;
+  if jsonb_array_length(p_users) > 50 then raise exception 'ONBOARDING_TOO_MANY_USERS'; end if;
   select count(*) into v_gestao from jsonb_to_recordset(p_users) as u(name text, email text, role text) where u.role = 'gestao' and btrim(u.name) <> '' and btrim(u.email) <> '';
   select count(*) into v_atendimento from jsonb_to_recordset(p_users) as u(name text, email text, role text) where u.role = 'atendimento' and btrim(u.name) <> '' and btrim(u.email) <> '';
   if v_gestao < 1 or v_atendimento < 1 then raise exception 'ONBOARDING_PROFILES_REQUIRED'; end if;
@@ -120,6 +134,9 @@ begin
     end if;
   end loop;
 
+  insert into public.internal_onboarding_audit (onboarding_id, client_id, actor_id, action, metadata)
+  values (v_onboarding, v_client, v_actor, 'created', jsonb_build_object('user_count', jsonb_array_length(p_users), 'pending_auth_users', v_pending));
+
   return jsonb_build_object('client_id', v_client, 'onboarding_id', v_onboarding, 'pending_auth_users', v_pending);
 end
 $fn$;
@@ -127,5 +144,41 @@ $fn$;
 revoke all on function public.create_internal_onboarding(text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,jsonb) from public, anon, authenticated;
 grant execute on function public.create_internal_onboarding(text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,jsonb) to authenticated;
 
-comment on table public.internal_onboardings is 'Intake interno auditável. Nunca armazenar senha, token, refresh token ou segredo aqui.';
+create or replace function public.link_internal_onboarding_user(p_onboarding_user_id uuid, p_auth_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+declare
+  v_actor uuid := (select auth.uid());
+  v_client uuid;
+  v_role text;
+begin
+  if v_actor is null or not exists (
+    select 1 from public.client_users cu where cu.user_id = v_actor and cu.role = 'agency' and cu.is_active
+  ) then raise exception 'ONBOARDING_FORBIDDEN'; end if;
+  select io.client_id, case iu.profile when 'gestao' then 'manager' else 'attendant' end
+    into v_client, v_role
+    from public.internal_onboarding_users iu
+    join public.internal_onboardings io on io.id = iu.onboarding_id
+   where iu.id = p_onboarding_user_id and iu.auth_user_id is null and iu.invite_status = 'pending_auth';
+  if v_client is null then raise exception 'ONBOARDING_USER_NOT_PENDING'; end if;
+  update public.internal_onboarding_users
+     set auth_user_id = p_auth_user_id, invite_status = 'linked'
+   where id = p_onboarding_user_id;
+  insert into public.client_users (client_id, user_id, role, is_active)
+  values (v_client, p_auth_user_id, v_role, true)
+  on conflict (client_id, user_id) do update set role = excluded.role, is_active = true;
+  insert into public.internal_onboarding_audit (onboarding_id, client_id, actor_id, action, metadata)
+  select iu.onboarding_id, v_client, v_actor, 'invite_sent', jsonb_build_object('user_id', p_auth_user_id)
+    from public.internal_onboarding_users iu where iu.id = p_onboarding_user_id;
+end
+$fn$;
+
+revoke all on function public.link_internal_onboarding_user(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.link_internal_onboarding_user(uuid, uuid) to authenticated;
+
+comment on table public.internal_onboardings is 'Intake interno auditável. Nunca armazenar senha, token, refresh token ou segredo.';
 comment on table public.internal_onboarding_users is 'Contas individuais do cliente: vincula usuários já existentes; pending_auth aguarda convite pelo fluxo de Auth.';
+comment on table public.internal_onboarding_audit is 'Auditoria de ações do onboarding. Actor explícito; nunca armazenar credenciais ou tokens.';
