@@ -196,7 +196,7 @@ begin
 
 
 
-    if v_oportunidade_id is null then
+    if v_oportunidade_id is null and not v_de_mim and v_conv_source is not null then
 
       insert into crm.opportunities
 

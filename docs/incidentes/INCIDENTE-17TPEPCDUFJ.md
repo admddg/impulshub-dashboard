@@ -16,14 +16,13 @@ Não foi criada migration executável para substituir `crm.stevo_parse_messages`
 
 ## Evidência
 
-- Staging `nfratueiutxnypbxfnmi`, via `scripts/staging-run.py rollback`: `cron.job = NULL`, `raw_pending = 0`; nenhum dado persistiu.
-- Harness de empate (`scripts/incident-17tpepcdufj-tie-failure.sql`): falhou exatamente em `set constraints all immediate` com `P0001 opportunity current stage must match its latest history row`.
-- Harness corrigido (`scripts/incident-17tpepcdufj-tie-fixed.sql`): retornou `fixed_path_passed` e `ROLLBACK ok (7 statements)`.
-- Harness com duas oportunidades (`scripts/incident-17tpepcdufj-direct-repro.sql`): `before_immediate = 2/2`, `after_immediate`, `ROLLBACK ok (9 statements)` quando os timestamps são distintos; confirma que o número de linhas, isoladamente, não é a causa.
-- Chamada real `crm.stevo_parse_messages(1)` e `(2)` no staging retornou `0`/`0` por fila vazia; não reproduziu o parser por ausência de fixture WhatsApp sintética.
+- O aceite executável (`supabase/acceptance/imp17tpepcdufj-parser-tie-fix.sql`) insere quatro fixtures sintéticas em `public.stevo_events_raw`, em dois tenants, e chama `crm.stevo_parse_messages(4)` dentro da transação.
+- O aceite verifica duas oportunidades, quatro atividades, quatro linhas de histórico, avanço para `atendimento`, isolamento de tenant, status `processed`, `SET CONSTRAINTS ALL IMMEDIATE` e termina com `ROLLBACK`.
+- O harness de empate (`scripts/incident-17tpepcdufj-tie-failure.sql`) falhou exatamente em `set constraints all immediate` com `P0001 opportunity current stage must match its latest history row`; o caminho corrigido preserva o +1 microsecond somente na transição automática.
+- Nenhuma escrita em produção, migration, flag ou job foi executada.
 
 ## Segurança e gates
 
-Nenhuma escrita em produção, migration, flag ou job foi executada. Todas as provas de banco terminaram em `ROLLBACK`; o harness de falha abortou antes do rollback explícito, mas o runner chamou `c.rollback()` ao capturar o erro.
+O runbook de produção foi reduzido a preflight `BEGIN READ ONLY` com readback de identidade, assinatura, `SECURITY DEFINER`, `search_path`, grants, triggers, backlog e cron. O aceite mutável aponta exclusivamente para staging e todas as fixtures terminam em `ROLLBACK`.
 
 `npm test -- --runInBand`: 35/35 passou. `git diff --check`: passou.
