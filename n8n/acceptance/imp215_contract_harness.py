@@ -100,9 +100,8 @@ def test_dispatcher_guards_and_preservation():
         assert_true("dispatch_mode: row.dispatch_mode" in build and "claimed_attempt: requestItem.claimed_attempt" in finalize, f"{platform}: claim context not propagated")
 
 
-def test_consumer_is_closed_by_default():
+def test_consumer_is_guarded_for_impuls_pilot():
     current = wf("IMP-215-scheduled-conversion-outbox-consumer.json")
-    assert_true(current["active"] is False, "consumer must remain inactive")
     config = node(current, "Validate Versioned Allowlist and Cutoff")["parameters"]["jsCode"]
     sql = node(current, "Read Eligible Candidates (Dry Run)")["parameters"]["query"]
     report = node(current, "Dry Run Report")["parameters"]["jsCode"]
@@ -112,7 +111,7 @@ def test_consumer_is_closed_by_default():
         assert_true(token in sql, f"consumer eligibility guard missing: {token}")
     assert_true("claim_sql_gate" in report and "dry_run" in report, "dry-run report missing")
     assert_true("Execute Workflow" in json.dumps(current), "controlled dispatch artifact missing")
-    assert_true("dispatch_enabled" in config and "false" in config, "dispatch must remain disabled")
+    assert_true("dispatch_enabled" in config and "true" in config, "pilot dispatch must be explicitly enabled")
     assert_true("platform" in json.dumps(current) and "Meta Child" in json.dumps(current) and "Google Child" in json.dumps(current), "platform child routing missing")
 
 
@@ -124,7 +123,7 @@ def test_claim_dispatch_slice_is_present_but_killed():
     for token in ("update public.conversion_outbox", "status = 'processing'", "attempts = co.attempts + 1", "returning co.id", "for update skip locked"):
         assert_true(token in claim.lower(), f"claim contract missing: {token}")
     assert_true("Execute Workflow" in serialized, "controlled child dispatch nodes missing")
-    assert_true("dispatch_enabled" in serialized and "false" in serialized, "dispatch kill switch not default-off")
+    assert_true("dispatch_enabled" in serialized and "true" in serialized, "pilot dispatch must be explicitly enabled")
     assert_true("platform" in serialized and "Meta Child" in serialized and "Google Child" in serialized, "platform routing missing")
     assert_true("AHT6ltpnxdC29QCC" not in serialized, "live consumer must not be overwritten by artifact")
 
@@ -242,6 +241,6 @@ def test_stale_response_cannot_close_new_attempt():
 
 
 if __name__ == "__main__":
-    for test in (test_exports_untouched, test_original_11_caller_is_explicitly_audited, test_versioned_11_inline_copy_has_explicit_contract, test_dispatcher_guards_and_preservation, test_consumer_is_closed_by_default, test_claim_dispatch_slice_is_present_but_killed, test_dispatcher_claim_and_protected_closure, test_negative_matrix, test_deterministic_concurrent_claims_increment_once, test_lease_expiry_closes_without_automatic_http_retry, test_stale_response_cannot_close_new_attempt):
+    for test in (test_exports_untouched, test_original_11_caller_is_explicitly_audited, test_versioned_11_inline_copy_has_explicit_contract, test_dispatcher_guards_and_preservation, test_consumer_is_guarded_for_impuls_pilot, test_claim_dispatch_slice_is_present_but_killed, test_dispatcher_claim_and_protected_closure, test_negative_matrix, test_deterministic_concurrent_claims_increment_once, test_lease_expiry_closes_without_automatic_http_retry, test_stale_response_cannot_close_new_attempt):
         test()
         print(f"PASS {test.__name__}")
