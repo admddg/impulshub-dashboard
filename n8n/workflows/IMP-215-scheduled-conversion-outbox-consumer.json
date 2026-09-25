@@ -47,6 +47,12 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      },
       "position": [
         460,
         0
@@ -78,7 +84,13 @@
         700,
         220
       ],
-      "alwaysOutputData": true
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "M9VYuWUZ1d8xu7Bk",
+          "name": "Postgres account"
+        }
+      }
     },
     {
       "parameters": {
@@ -120,7 +132,13 @@
     },
     {
       "parameters": {
-        "workflowId": "IMP-215-dispatch-single-meta-claim",
+        "workflowId": {
+          "__rl": true,
+          "value": "GuJOyCaF93i7ps8l",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/GuJOyCaF93i7ps8l",
+          "cachedResultName": "IMP-215 - Dispatch Single Meta Conversion - Claim Contract"
+        },
         "mode": "list",
         "options": {
           "waitForSubWorkflow": false
@@ -146,7 +164,13 @@
     },
     {
       "parameters": {
-        "workflowId": "IMP-215-dispatch-single-google-claim",
+        "workflowId": {
+          "__rl": true,
+          "value": "VLzVbZaFqeKa0JJr",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/VLzVbZaFqeKa0JJr",
+          "cachedResultName": "IMP-215 - Dispatch Single Google Conversion - Claim Contract"
+        },
         "mode": "list",
         "options": {
           "waitForSubWorkflow": false
@@ -277,14 +301,14 @@
     },
     "Dispatch Kill Switch (OFF)": {
       "main": [
+        [],
         [
           {
             "node": "Claim Eligible Outbox Rows",
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
     "Claim Eligible Outbox Rows": {
