@@ -3,8 +3,9 @@
 **Fonte de verdade operacional do projeto.** Reconciliado em **25/09/2026**,
 partindo de `origin/main` no commit **`d4f37a42c80c67d7ced6ad4a9bc72336d23c2464`**.
 
-Este documento separa estado verificado de relato. Não substitui o ROADMAP e não
-inclui onboarding, criativos ou os clientes Royal, Central e QuickClean.
+Este documento separa estado verificado de relato. Não substitui o ROADMAP e inclui o
+estado operacional do onboarding; criativos e os clientes Royal, Central e QuickClean
+seguem fora desta frente.
 
 ## Resumo executivo
 
@@ -17,7 +18,22 @@ inclui onboarding, criativos ou os clientes Royal, Central e QuickClean.
   `dry_run=false` e `dispatch_enabled=true`. A execução 17057 terminou com
   `candidate_count=0`; não houve claim, child execution, HTTP/validateOnly ou
   closure.
-- Onboarding está explicitamente fora desta onda.
+- Onboarding V1 está publicado em produção no painel oficial. O primeiro cadastro real enviou 2 convites e vinculou 2 usuários; dois novos testes salvaram os cadastros, mas deixaram 2 usuários `pending_auth` em cada tentativa, sem envio confirmado. O fluxo de convite permanece o blocker operacional atual.
+
+## Onboarding V1 — estado atual
+
+| Item | Estado verificado | Evidência |
+|---|---|---|
+| Migration | Aplicada em produção `mtxnwtqwfagjzkvgsncs` | `20261005000000_internal_onboarding.sql` |
+| Edge Function | Publicada como `invite-internal-onboarding`; secret administrativo permanece somente na plataforma | deploy e proteção JWT já validados |
+| Primeiro teste real | 2 usuários criados, 2 vinculados e 2 convites enviados | readback do onboarding `6ead6435-97c0-48c3-8c11-3ff92ae4e714` |
+| Re-teste 1 | cadastro salvo, 2 usuários `pending_auth`, envio não confirmado | onboarding `cc6bb581-f6b6-4b69-8f0c-02667fccabaa` |
+| Re-teste 2 | cadastro salvo, 2 usuários `pending_auth`, envio não confirmado | onboarding `2fabe034-3206-42aa-a1d3-e312e7a72259` |
+| Auditoria | 5 registros presentes | readback read-only em 25/09/2026 |
+
+**Interpretação:** a persistência e a auditoria funcionam; o problema está restrito ao trecho de convite/Auth. Não apagar e recriar usuários como estratégia de teste: isso cria clientes de teste adicionais e não diagnostica a falha.
+
+**Próximo gate:** capturar o erro real da invocação da Edge Function em produção e corrigir/republicar o fluxo de reenvio para usuários já vinculados ou pendentes. Nenhum segredo deve ser enviado ao chat.
 
 ## Confirmado em produção
 

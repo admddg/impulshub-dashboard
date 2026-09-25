@@ -20,13 +20,20 @@ A RPC não cria contas Auth. Após o submit, o navegador chama a Edge Function `
 - usa `SUPABASE_SERVICE_ROLE_KEY` somente no ambiente da Edge Function para `auth.admin.inviteUserByEmail`;
 - vincula o `auth_user_id`, a role operacional e grava auditoria com `actor_id`, sem retornar ou persistir qualquer segredo.
 
-A função deve ser implantada/configurada no projeto de staging antes de considerar o aceite concluído. Se ela não estiver disponível, o submit permanece salvo e a UI informa explicitamente que os convites continuam pendentes; não há fallback com `service_role` no browser.
+A função foi implantada em staging e produção, com `service_role` somente como secret da plataforma. O primeiro cadastro real confirmou o caminho positivo uma vez (2 convites enviados e 2 usuários vinculados). Em novos testes, o submit continua sendo salvo, mas os convites permaneceram `pending_auth`; o diagnóstico do erro de envio ainda está pendente e não deve ser mascarado por novo cadastro ou exclusão de usuários.
 
-## Gate restante
+## Estado publicado e gate restante
 
-1. aplicar `20261005000000_internal_onboarding.sql` em staging;
-2. implantar `invite-internal-onboarding` em staging com a chave administrativa somente como secret da plataforma;
-3. validar RPC, convite individual, retry e isolamento com uma sessão `agency`;
-4. conferir auditoria e vínculos antes de ativar o cliente.
+- Migration aplicada em produção `mtxnwtqwfagjzkvgsncs`.
+- Edge Function publicada em staging e produção com JWT e secret administrativo somente na plataforma.
+- Primeiro teste real: 2 convites enviados e 2 usuários vinculados.
+- Dois re-testes posteriores salvaram o onboarding, mas deixaram 2 usuários `pending_auth` em cada tentativa; não há confirmação de envio nesses dois casos.
+
+Gate restante:
+
+1. obter o erro real da invocação da Edge Function/Auth em produção;
+2. corrigir o envio e o reenvio sem depender de apagar usuários ou recriar clientes;
+3. validar um novo convite com e-mail autorizado e readback de entrega, vínculo e auditoria;
+4. manter os registros de teste identificados como teste até a decisão de limpeza, sem apagar dados no escuro.
 
 A migration permite `clients_base.ghl_location_id` nulo porque onboarding novo não usa GHL. O rollback recusa restaurar `NOT NULL` enquanto houver qualquer nulo (`ROLLBACK_BLOCKED_GHL_LOCATION_NULLS`); isso evita uma reversão destrutiva e exige um plano de dados explícito.
