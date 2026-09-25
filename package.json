@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "typecheck:deno": "deno check supabase/functions/form-intake/index.ts",
+    "typecheck:deno": "deno check supabase/functions/form-intake/index.ts supabase/functions/invite-internal-onboarding/index.ts",
     "test": "node --test lib/*.test.mjs"
   },
   "dependencies": {
