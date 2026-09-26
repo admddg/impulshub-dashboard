@@ -378,10 +378,15 @@ with params as (
          count(*) over (partition by en.event_code, co.platform) as pair_outbox_rows,
          coalesce(ec.eligible_events, 0)::bigint as pair_eligible_events
   from public.conversion_outbox co
-  left join public.events_normalized en on en.id = co.normalized_event_id
-  left join event_counts ec on ec.event_code = en.event_code
   cross join params p
+  left join public.events_normalized en
+    on en.id = co.normalized_event_id
+   and en.client_id = p.client_id
+   and en.source_system = 'impuls_crm'
+  left join event_counts ec on ec.event_code = en.event_code
   where co.created_at >= p.start_at and co.created_at < p.end_at
+    and en.client_id = p.client_id
+    and en.source_system = 'impuls_crm'
 ), classified as (
   select ow.*,
     case
@@ -422,10 +427,13 @@ select * from row_report
 order by report_type, event_code nulls first, platform nulls first;
 ```
 
-The `row_category` column is part of the `expected_report`/`row_report` union;
-do not drop it while aggregating. The detailed category query below is scoped to
-the target client so another client's rows cannot inflate duplicate or surplus
-counts in the canary.
+The detailed report applies the same exact-client/CRM join before any window
+function or category count. `conversion_outbox` has no independent `client_id`;
+therefore an outbox row that cannot join to the target client's
+`impuls_crm` event is not attributable to this canary and is excluded rather
+than being allowed to appear as a target orphan. This is intentional
+fail-closed behavior: the `orphaned_outbox` category remains in the report
+contract, but unknown-client rows cannot satisfy or inflate it.
 
 The `expected_pair` rows for `primeira_conversa` and `perdido` must report
 `expected_outbox_rows = 0` and the matching `outbox_row` count must be zero.
@@ -461,7 +469,11 @@ with params as (
            else 'eligible_match'
          end as category
   from public.conversion_outbox co
-  left join public.events_normalized en on en.id = co.normalized_event_id
+  cross join params p
+  left join public.events_normalized en
+    on en.id = co.normalized_event_id
+   and en.client_id = p.client_id
+   and en.source_system = 'impuls_crm'
   left join (
     select event_code, count(*)::bigint as eligible_events
     from public.events_normalized en_count
@@ -473,8 +485,8 @@ with params as (
       and en_count.created_at < p_count.end_at
     group by event_code
   ) ec on ec.event_code = en.event_code
-  cross join params p
   where en.client_id = p.client_id
+    and en.source_system = 'impuls_crm'
     and co.created_at >= p.start_at
     and co.created_at < p.end_at
 )
@@ -527,8 +539,12 @@ with expected as (
 ), actual as (
   select en.event_code, co.platform, count(*)::bigint as actual_rows
   from public.conversion_outbox co
-  left join public.events_normalized en on en.id = co.normalized_event_id
+  left join public.events_normalized en
+    on en.id = co.normalized_event_id
+   and en.client_id = '<client_id>'::uuid
+   and en.source_system = 'impuls_crm'
   where en.client_id = '<client_id>'::uuid
+    and en.source_system = 'impuls_crm'
     and co.created_at >= '<janela_inicio>'::timestamptz
     and co.created_at < '<janela_fim>'::timestamptz
   group by en.event_code, co.platform

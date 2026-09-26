@@ -85,6 +85,9 @@ function collectErrors(source) {
   requirePattern(/when count\(\*\) over \(partition by en\.event_code, co\.platform\)[\s\S]*>\s*coalesce\(ec\.eligible_events, 0\)[\s\S]*then 'surplus'/i, 'detailed surplus branch', reconciliation)
   requirePattern(/expected_report[\s\S]*null::text as row_category[\s\S]*row_report[\s\S]*c\.row_category[\s\S]*group by c\.event_code, c\.platform, c\.row_category/i, 'row_category preserved through report union', reconciliation)
   requirePattern(/cross join params p[\s\S]*where en\.client_id = p\.client_id/i, 'detailed report target-client scope', reconciliation)
+  requirePattern(/outbox_window as \([\s\S]*?en\.client_id = p\.client_id[\s\S]*?en\.source_system = 'impuls_crm'[\s\S]*?where co\.created_at/i, 'main outbox target client and CRM scope', reconciliation)
+  requirePattern(/classified as \([\s\S]*?cross join params p[\s\S]*?en\.client_id = p\.client_id[\s\S]*?en\.source_system = 'impuls_crm'/i, 'detailed report target client and CRM scope', reconciliation)
+  requirePattern(/actual as \([\s\S]*?en\.client_id = '<client_id>'::uuid[\s\S]*?en\.source_system = 'impuls_crm'/i, 'numeric actual target client and CRM scope', reconciliation)
   requirePattern(/expected_report[\s\S]*case when e\.eligible then e\.eligible_events else 0 end as expected_outbox_rows/i, 'ineligible zero outbox expected rows', reconciliation)
   requirePattern(/outbox_window as \([\s\S]*?where co\.created_at\s*>=\s*p\.start_at[\s\S]*?and co\.created_at\s*<\s*p\.end_at/i, 'whole outbox window', reconciliation)
   requirePattern(/value_status\s*=\s*'valid'[\s\S]*valor_ganho\s*>\s*0[\s\S]*currency\s*=\s*'BRL'/i, 'ganho value/currency executable contract')
@@ -111,6 +114,9 @@ const mutations = [
   ['remove ineligible zero-row logic', (source) => source.replace('case when e.eligible then e.eligible_events else 0 end as expected_outbox_rows', 'e.eligible_events as expected_outbox_rows')],
   ['remove full-window upper predicate', (source) => source.replace(/\s+and co\.created_at < p\.end_at/g, '')],
   ['remove full-window lower predicate', (source) => source.replace(/\s+(?:where|and) co\.created_at >= p\.start_at/g, '')],
+  ['remove main target client predicate', (source) => source.replace(/\s+and en\.client_id = p\.client_id/g, '')],
+  ['remove main CRM source predicate', (source) => source.replace(/\s+and en\.source_system = 'impuls_crm'/g, '')],
+  ['remove numeric actual CRM predicate', (source) => source.replace(/\s+and en\.source_system = 'impuls_crm'/g, '')],
   ['remove ganho positive predicate', (source) => source.replace('and valor_ganho > 0', 'and valor_ganho >= 0')],
 ]
 for (const [label, mutate] of mutations) {
