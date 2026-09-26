@@ -301,14 +301,14 @@
     },
     "Dispatch Kill Switch (OFF)": {
       "main": [
-        [],
         [
           {
             "node": "Claim Eligible Outbox Rows",
             "type": "main",
             "index": 0
           }
-        ]
+        ],
+        []
       ]
     },
     "Claim Eligible Outbox Rows": {
