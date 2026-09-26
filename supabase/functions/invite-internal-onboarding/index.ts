@@ -18,6 +18,7 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const inviteRedirectTo = "https://painel.impulshub.com/definir-senha";
   const authorization = req.headers.get("Authorization");
   if (!supabaseUrl || !anonKey || !serviceKey) return json({ ok: false, error: "service unavailable" }, 503);
   if (!authorization?.startsWith("Bearer ")) return json({ ok: false, error: "unauthorized" }, 401);
@@ -70,6 +71,7 @@ Deno.serve(async (req) => {
     try {
       const { data: invitedUser, error: inviteError } = await db.auth.admin.inviteUserByEmail(user.email, {
         data: { onboarding_id: onboardingId, onboarding_profile: user.profile },
+        redirectTo: inviteRedirectTo,
       });
       let authUser = invitedUser?.user ?? null;
       if (inviteError || !authUser) {
