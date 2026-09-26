@@ -405,20 +405,27 @@ with params as (
   select 'expected_pair' as report_type, e.event_code, e.platform,
          0::bigint as outbox_rows, e.eligible_events,
          case when e.eligible then e.eligible_events else 0 end as expected_outbox_rows,
-         case when e.eligible then 0 else 0 end::bigint as ineligible_zero_outbox
+         case when e.eligible then 0 else 0 end::bigint as ineligible_zero_outbox,
+         null::text as row_category
   from expected e
 ), row_report as (
   select 'outbox_row' as report_type, c.event_code, c.platform,
          count(*)::bigint as outbox_rows, null::bigint as eligible_events,
-         null::bigint as expected_outbox_rows, null::bigint as ineligible_zero_outbox
+         null::bigint as expected_outbox_rows, null::bigint as ineligible_zero_outbox,
+         c.row_category
   from classified c
-  group by c.event_code, c.platform
+  group by c.event_code, c.platform, c.row_category
 )
 select * from expected_report
 union all
 select * from row_report
 order by report_type, event_code nulls first, platform nulls first;
 ```
+
+The `row_category` column is part of the `expected_report`/`row_report` union;
+do not drop it while aggregating. The detailed category query below is scoped to
+the target client so another client's rows cannot inflate duplicate or surplus
+counts in the canary.
 
 The `expected_pair` rows for `primeira_conversa` and `perdido` must report
 `expected_outbox_rows = 0` and the matching `outbox_row` count must be zero.
@@ -427,7 +434,11 @@ zero-count category rows, so unsupported platforms, duplicates, surplus rows
 and orphans cannot be hidden by an inner join:
 
 ```sql
-with categories(category) as (
+with params as (
+  select '<client_id>'::uuid as client_id,
+         '<janela_inicio>'::timestamptz as start_at,
+         '<janela_fim>'::timestamptz as end_at
+), categories(category) as (
   values ('orphaned_outbox'), ('ineligible_event_code'),
          ('unsupported_platform'), ('duplicate'), ('surplus'),
          ('unsupported_event_code'), ('eligible_match')
@@ -436,18 +447,36 @@ with categories(category) as (
          en.opportunity_id, en.event_code, co.platform, co.status, co.sent_at,
          co.external_job_id, co.external_request_id, co.http_status,
          co.response, co.last_error,
+         count(*) over (partition by en.event_code, co.platform) as pair_outbox_rows,
+         coalesce(ec.eligible_events, 0)::bigint as pair_eligible_events,
          case
            when en.id is null then 'orphaned_outbox'
            when co.platform not in ('meta', 'google_ads') then 'unsupported_platform'
            when en.event_code in ('primeira_conversa', 'perdido') then 'ineligible_event_code'
            when count(*) over (partition by co.normalized_event_id, co.platform) > 1 then 'duplicate'
            when en.event_code not in ('lead', 'agendado', 'ganho') then 'unsupported_event_code'
+           when count(*) over (partition by en.event_code, co.platform)
+                > coalesce(ec.eligible_events, 0)
+             then 'surplus'
            else 'eligible_match'
          end as category
   from public.conversion_outbox co
   left join public.events_normalized en on en.id = co.normalized_event_id
-  where co.created_at >= '<janela_inicio>'::timestamptz
-    and co.created_at < '<janela_fim>'::timestamptz
+  left join (
+    select event_code, count(*)::bigint as eligible_events
+    from public.events_normalized en_count
+    cross join params p_count
+    where en_count.client_id = p_count.client_id
+      and en_count.source_system = 'impuls_crm'
+      and en_count.event_code in ('lead', 'agendado', 'ganho')
+      and en_count.created_at >= p_count.start_at
+      and en_count.created_at < p_count.end_at
+    group by event_code
+  ) ec on ec.event_code = en.event_code
+  cross join params p
+  where en.client_id = p.client_id
+    and co.created_at >= p.start_at
+    and co.created_at < p.end_at
 )
 select c.category, count(x.outbox_id)::bigint as outbox_rows,
        count(x.outbox_id) filter (where x.status = 'failed')::bigint as failed_rows,
