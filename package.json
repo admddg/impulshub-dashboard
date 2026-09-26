@@ -9,6 +9,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "typecheck:deno": "deno check supabase/functions/form-intake/index.ts supabase/functions/invite-internal-onboarding/index.ts",
+    "validate:imp219": "node scripts/validate-imp219-runbook.mjs",
     "test": "node --test lib/*.test.mjs"
   },
   "dependencies": {
