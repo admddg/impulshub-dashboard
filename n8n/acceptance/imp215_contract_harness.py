@@ -128,6 +128,29 @@ def test_claim_dispatch_slice_is_present_but_killed():
     assert_true("AHT6ltpnxdC29QCC" not in serialized, "live consumer must not be overwritten by artifact")
 
 
+def test_enabled_flags_route_true_output_to_claim():
+    current = wf("IMP-215-scheduled-conversion-outbox-consumer.json")
+    kill_switch = node(current, "Dispatch Kill Switch (OFF)")
+    conditions = kill_switch["parameters"]["conditions"]
+    expected_conditions = [
+        ("={{ $('Validate Versioned Allowlist and Cutoff').first().json.dry_run }}", False),
+        ("={{ $('Validate Versioned Allowlist and Cutoff').first().json.dispatch_enabled }}", True),
+    ]
+    actual_conditions = [
+        (condition["leftValue"], condition["rightValue"])
+        for condition in conditions["conditions"]
+    ]
+    assert_true(conditions["combinator"] == "and", "kill switch conditions must both pass")
+    assert_true(actual_conditions == expected_conditions, "enabled flag semantics changed")
+
+    outputs = current["connections"][kill_switch["name"]]["main"]
+    assert_true(
+        outputs[0] == [{"node": "Claim Eligible Outbox Rows", "type": "main", "index": 0}],
+        "enabled flags must route n8n IF true output (index 0) to claim",
+    )
+    assert_true(outputs[1] == [], "n8n IF false output (index 1) must not claim")
+
+
 def test_dispatcher_claim_and_protected_closure():
     cases = [
         ("IMP-215-dispatch-single-meta-claim.json", "Get Single Meta Outbox", "Update Single Meta Outbox Result"),
@@ -241,6 +264,6 @@ def test_stale_response_cannot_close_new_attempt():
 
 
 if __name__ == "__main__":
-    for test in (test_exports_untouched, test_original_11_caller_is_explicitly_audited, test_versioned_11_inline_copy_has_explicit_contract, test_dispatcher_guards_and_preservation, test_consumer_is_guarded_for_impuls_pilot, test_claim_dispatch_slice_is_present_but_killed, test_dispatcher_claim_and_protected_closure, test_negative_matrix, test_deterministic_concurrent_claims_increment_once, test_lease_expiry_closes_without_automatic_http_retry, test_stale_response_cannot_close_new_attempt):
+    for test in (test_exports_untouched, test_original_11_caller_is_explicitly_audited, test_versioned_11_inline_copy_has_explicit_contract, test_dispatcher_guards_and_preservation, test_consumer_is_guarded_for_impuls_pilot, test_claim_dispatch_slice_is_present_but_killed, test_enabled_flags_route_true_output_to_claim, test_dispatcher_claim_and_protected_closure, test_negative_matrix, test_deterministic_concurrent_claims_increment_once, test_lease_expiry_closes_without_automatic_http_retry, test_stale_response_cannot_close_new_attempt):
         test()
         print(f"PASS {test.__name__}")
