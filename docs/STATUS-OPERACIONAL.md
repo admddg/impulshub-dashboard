@@ -1,7 +1,7 @@
 # Status operacional
 
 **Fonte de verdade operacional do projeto.** Reconciliado em **25/09/2026**,
-partindo de `origin/main` no commit **`d4f37a42c80c67d7ced6ad4a9bc72336d23c2464`**.
+partindo de `origin/main` no commit **`7d1b7e9`**.
 
 Este documento separa estado verificado de relato. Não substitui o ROADMAP e inclui o
 estado operacional do onboarding; criativos e os clientes Royal, Central e QuickClean
@@ -29,9 +29,9 @@ seguem fora desta frente.
 | Primeiro teste real | 2 usuários criados, 2 vinculados e 2 convites enviados | readback do onboarding `6ead6435-97c0-48c3-8c11-3ff92ae4e714` |
 | Re-teste 1 | cadastro salvo, 2 usuários `pending_auth`, envio não confirmado | onboarding `cc6bb581-f6b6-4b69-8f0c-02667fccabaa` |
 | Re-teste 2 | cadastro salvo, 2 usuários `pending_auth`, envio não confirmado | onboarding `2fabe034-3206-42aa-a1d3-e312e7a72259` |
-| Auditoria | 5 registros presentes | readback read-only em 25/09/2026 |
+| Auditoria | 6 registros presentes: 3 `created` e 3 `invite_sent` | readback read-only em 25/09/2026 |
 
-**Interpretação:** a persistência e a auditoria funcionam; o problema está restrito ao trecho de convite/Auth. Não apagar e recriar usuários como estratégia de teste: isso cria clientes de teste adicionais e não diagnostica a falha.
+**Interpretação:** a persistência, a auditoria e a projeção CRM funcionam. A migration incremental `20261006000000_onboarding_crm_sync.sql` foi aplicada em staging e produção, sincronizando tenants, perfis e memberships sem reescrever `public.client_users`; `crm.is_member` agora bloqueia leitura CRM do viewer legado. O readback de produção continua com três `pending_auth`, portanto o fechamento operacional permanece aberto.
 
 **Próximo gate:** capturar o erro real da invocação da Edge Function em produção e corrigir/republicar o fluxo de reenvio para usuários já vinculados ou pendentes. Nenhum segredo deve ser enviado ao chat.
 
@@ -86,7 +86,7 @@ e não marcar IMP-215 como concluído sem candidato novo elegível da Impuls.
   abaixo de 8 s estão registrados.
 - **IMP-215:** permanece em `in progress`; o ciclo real foi seguro e vazio, mas
   claim/child/HTTP/validateOnly/closure não foram exercitados.
-- **Onboarding:** fora do escopo e não deve ser alterado ou marcado nesta onda.
+- **Onboarding:** parcialmente fechado tecnicamente; projeção CRM e proteção de viewer foram aplicadas, mas o fechamento operacional depende de resolver os três `pending_auth` e testar acesso/isolamento com usuários reais.
 
 ## ClickUp e fontes externas
 

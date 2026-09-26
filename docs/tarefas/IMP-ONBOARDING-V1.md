@@ -20,7 +20,7 @@ A RPC não cria contas Auth. Após o submit, o navegador chama a Edge Function `
 - usa `SUPABASE_SERVICE_ROLE_KEY` somente no ambiente da Edge Function para `auth.admin.inviteUserByEmail`;
 - vincula o `auth_user_id`, a role operacional e grava auditoria com `actor_id`, sem retornar ou persistir qualquer segredo.
 
-A função foi implantada em staging e produção, com `service_role` somente como secret da plataforma. O primeiro cadastro real confirmou o caminho positivo uma vez (2 convites enviados e 2 usuários vinculados). Em novos testes, o submit continua sendo salvo, mas os convites permaneceram `pending_auth`; o diagnóstico do erro de envio ainda está pendente e não deve ser mascarado por novo cadastro ou exclusão de usuários.
+A função foi implantada em staging e produção, com `service_role` somente como secret da plataforma. O primeiro cadastro real confirmou o caminho positivo uma vez (2 convites enviados e 2 usuários vinculados). A função agora redireciona novos convites para `/definir-senha`, onde o próprio usuário define a senha via `supabase.auth.updateUser`. O readback atual ainda mostra três usuários `pending_auth` em produção; eles devem ser reenviados/reconciliados sem novo cadastro.
 
 ## Checklist de fechamento do onboarding
 
@@ -30,13 +30,16 @@ A função foi implantada em staging e produção, com `service_role` somente co
 - [x] migration e RPC aplicadas em produção;
 - [x] convite server-side protegido por JWT;
 - [x] reenvio de pendências disponível na tela interna;
-- [ ] validar um novo reenvio com e-mail autorizado e readback `pending_auth → linked`;
-- [ ] implementar/validar tela para o usuário definir a senha permanente após o primeiro convite.
+- [x] rota `/definir-senha` publicada para novos convites;
+- [ ] validar reenvio com readback `pending_auth → linked` para os três pendentes atuais;
+- [ ] confirmar login normal após definição da senha.
 
 ### Gate 2 — autorização do cliente novo
 
 - [x] Gestão recebe a aba CRM;
 - [x] Atendimento recebe CRM, Funnel e Channels;
+- [x] onboarding sincroniza `crm.tenants`, `crm.profiles` e `crm.tenant_memberships`;
+- [x] viewer legado é excluído da leitura CRM por `crm.is_member`;
 - [x] auditoria individual permanece por usuário;
 - [ ] validar login de uma pessoa Gestão;
 - [ ] validar login de uma pessoa Atendimento;
