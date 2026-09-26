@@ -19,8 +19,10 @@ alteração de dados reais. O arquivo executável de referência é
   readback inconsistente ou falha de auditoria; não há `LIMIT 1`.
 - O replay histórico é explicitamente **ignorado por padrão**. Replay e
   reprocessamento de linhas antigas exigem plano separado e aprovação.
-- Pré-flight executável cobre alvo único desligado, ausência de GHL recente,
-  contratos do consumidor e baseline.
+- Pré-flight executável cobre alvo único desligado, ausência de GHL recente e
+  objetos observáveis dos contratos; prontidão de IMP-215–218 fica explicitamente
+  como evidência manual exigida (harnesses, export/versionamento e execução), sem
+  ser apresentada como uma prova executável deste runbook.
 - Canary e reconciliação usam critérios numéricos `event_code × platform` para
   `lead`, `agendado`, `ganho` × `meta`, `google_ads`; códigos inelegíveis devem
   gerar zero outbox.

@@ -38,25 +38,58 @@ where client_id = '<client_id>'::uuid
   and created_at >= now() - interval '7 days';
 -- Critério: ghl_events = 0, além da confirmação operacional de desligamento.
 
--- 3) O consumidor e a matriz vigente estão implantados.
-select event_code, platform, count(*) as existing_outbox_rows
-from public.conversion_outbox co
-join public.events_normalized en on en.id = co.normalized_event_id
-where en.client_id = '<client_id>'::uuid
-  and en.source_system = 'impuls_crm'
-  and co.event_code in ('lead', 'agendado', 'ganho')
-group by event_code, platform
-order by event_code, platform;
+-- 3) Contratos de IMP-216/217/218 observáveis no banco.
+select table_name, column_name
+from information_schema.columns
+where (table_schema, table_name, column_name) in (
+  ('public', 'events_normalized', 'valor_ganho'),
+  ('public', 'events_normalized', 'currency'),
+  ('public', 'events_normalized', 'value_status'),
+  ('public', 'conversion_outbox', 'platform'),
+  ('public', 'conversion_outbox', 'payload'),
+  ('public', 'conversion_outbox', 'external_request_id'),
+  ('public', 'conversion_outbox', 'external_job_id')
+)
+order by table_name, column_name;
+-- Critério: todas as 7 linhas retornam. Ausência é bloqueio.
+
+select indexname
+from pg_indexes
+where schemaname = 'public'
+  and tablename = 'conversion_outbox'
+  and indexname in ('conversion_outbox_event_platform_uidx',
+                    'conversion_outbox_normalized_event_id_platform_route_meta_e_key');
+-- Critério: os índices de deduplicação esperados retornam; ausência é bloqueio.
+
+select routine_schema, routine_name
+from information_schema.routines
+where routine_schema = 'crm'
+  and routine_name = 'emit_opportunity_stage_event';
+-- Critério: exatamente 1 função viva; confirme a assinatura com pg_get_functiondef.
+
+-- 4) O consumidor IMP-215 não pode ser presumido por esta consulta.
+select 'MANUAL_EVIDENCE_REQUIRED' as consumer_readiness,
+       'workflow export/version + active-state screenshot + last successful execution + imp215 harness output' as exact_evidence;
+-- Cole as referências desses quatro artefatos na autorização. Sem eles, pare.
 
 rollback;
 ```
 
 Não prossiga se `target_rows <> 1`, `target_off <> 1`, `ghl_events <> 0`, o
-cliente ainda receber GHL, as migrations/contratos de IMP-215–218 não estiverem
-confirmados, ou o consumidor não estiver pronto. A checagem de banco não prova
-sozinha que o GHL foi desligado: obtenha também a confirmação operacional.
+cliente ainda receber GHL, alguma linha/índice/função do contrato faltar, ou a
+evidência manual de prontidão do consumidor não estiver anexada. O SQL acima
+prova apenas os objetos de banco; **não afirma que IMP-215–218 estão aplicados
+nem que o workflow está pronto**. Para cada contrato, anexe o resultado do
+acceptance harness correspondente (`imp216-acceptance.sql`,
+`imp217-acceptance.sql`, `imp218-acceptance.sql`) e, para IMP-215, o output de
+`n8n/acceptance/imp215_contract_harness.py` e o export/versionamento do
+consumidor. Se esses artefatos não puderem ser obtidos, registre exatamente
+`manual evidence missing: <artefato>` e pare; não marque o pre-flight como
+executável ou verde.
 
 ### Replay: ignorar é o padrão seguro
+
+`replay_decision = ignore` é o **replay default** desta ativação.
 
 O padrão desta ativação é **ignorar o histórico acumulado**. Ligar a flag não
 faz replay e não autoriza reprocessar linhas antigas `failed`/`pending`. Replay
@@ -115,6 +148,8 @@ BEGIN
     started_at, finished_at, metadata
   ) values (
     gen_random_uuid(),
+    -- workflow_category allowed set: 'onboarding', 'events', 'dispatch',
+    -- 'media_sync', 'backfill', 'other'.
     'manual-imp219-canary-activation',
     'IMP-219 - Ativação manual de crm_emits_conversions',
     'other', -- valor permitido pelo CHECK do schema; 'ops' é inválido
@@ -213,6 +248,45 @@ investigar; não declare sucesso por aparência. Compare também os números
 externos com o Events Manager e registre a resposta, sem inventar uma resposta
 HTTP que não foi lida.
 
+Para `ganho`, execute também este contrato numérico; texto explicativo não
+substitui os contadores. Um ganho válido tem valor estritamente positivo,
+`value_status='valid'`, moeda `BRL` e payload com os mesmos dois valores. Um
+ganho pendente não pode criar outbox e deve ter valor/moeda nulos.
+
+```sql
+with gains as (
+  select en.id, en.value_status, en.valor_ganho, en.currency,
+         en.normalized_payload,
+         count(co.id)::bigint as outbox_rows,
+         count(*) filter (where co.id is not null and co.platform in ('meta','google_ads'))::bigint as eligible_outbox_rows
+  from public.events_normalized en
+  left join public.conversion_outbox co on co.normalized_event_id = en.id
+  where en.client_id = '<client_id>'::uuid
+    and en.source_system = 'impuls_crm'
+    and en.event_code = 'ganho'
+    and en.created_at >= '<janela_inicio>'::timestamptz
+    and en.created_at <  '<janela_fim>'::timestamptz
+  group by en.id, en.value_status, en.valor_ganho, en.currency, en.normalized_payload
+), checks as (
+  select *,
+    (value_status = 'valid' and valor_ganho > 0 and currency = 'BRL'
+      and normalized_payload->>'value' = valor_ganho::text
+      and normalized_payload->>'currency' = 'BRL') as valid_contract,
+    (value_status = 'pending' and valor_ganho is null and currency is null
+      and outbox_rows = 0) as pending_contract
+  from gains
+)
+select count(*) filter (where not (valid_contract or pending_contract))::bigint as ganho_contract_violations,
+       count(*) filter (where value_status = 'valid' and outbox_rows <> 2)::bigint as valid_ganho_outbox_count_violations,
+       count(*) filter (where value_status = 'pending' and outbox_rows <> 0)::bigint as pending_ganho_outbox_count_violations,
+       count(*) filter (where value_status = 'valid' and eligible_outbox_rows <> 2)::bigint as valid_ganho_platform_violations
+from checks;
+```
+
+Todos os quatro contadores devem ser `0`. Se a política aprovada para ganho
+pendente for diferente, registre a decisão e ajuste o critério antes da janela;
+não aceite uma linha sem valor por inferência.
+
 ## 4. Abortar integralmente
 
 Aborte imediatamente se surgir qualquer evento GHL, duplicidade provável,
@@ -268,75 +342,184 @@ não apaga outbox, eventos normalizados, nem eventos aceitos externamente.
 
 ## 5. Reconciliação pós-canário
 
-Reconcilie, sem DML de correção, a janela inteira a partir de
-`conversion_outbox` → `events_normalized`. O relatório deve manter uma linha por
-outbox e conter `event_code`, `platform`, `status`, `sent_at`,
-`external_job_id`, `external_request_id`, `http_status`, `response`, origem e
-identidade do evento:
+Reconcilie, sem DML de correção, **toda a janela de `conversion_outbox`** usando
+`co.created_at`, e não apenas eventos que conseguiram fazer join. O `left join`
+é deliberado: um outbox órfão precisa aparecer como `orphaned_outbox`, com a
+identidade desconhecida, em vez de desaparecer. A consulta também emite as
+linhas esperadas com zero outbox para códigos inelegíveis, e marca plataforma
+não suportada, duplicidade e excedente por linha.
 
 ```sql
-select co.id as outbox_id,
-       en.id as normalized_event_id, en.client_id, en.opportunity_id,
-       en.event_code, en.source_system, en.created_at as event_created_at,
-       co.platform, co.status, co.sent_at,
-       co.external_job_id, co.external_request_id,
-       co.http_status, co.response, co.last_error
-from public.conversion_outbox co
-join public.events_normalized en on en.id = co.normalized_event_id
-where en.client_id = '<client_id>'::uuid
-  and en.created_at >= '<janela_inicio>'::timestamptz
-  and en.created_at <  '<janela_fim>'::timestamptz
-order by en.opportunity_id, en.event_code, co.platform, co.created_at, co.id;
+with params as (
+  select '<janela_inicio>'::timestamptz as start_at,
+         '<janela_fim>'::timestamptz as end_at,
+         '<client_id>'::uuid as client_id
+), allowed_events(event_code, eligible) as (
+  values ('lead', true), ('primeira_conversa', false), ('agendado', true),
+         ('ganho', true), ('perdido', false)
+), supported_platforms(platform) as (
+  values ('meta'), ('google_ads')
+), events_in_window as (
+  select en.*
+  from public.events_normalized en, params p
+  where en.client_id = p.client_id
+    and en.source_system = 'impuls_crm'
+    and en.created_at >= p.start_at and en.created_at < p.end_at
+), event_counts as (
+  select event_code, count(*)::bigint as eligible_events
+  from events_in_window
+  group by event_code
+), outbox_window as (
+  select co.*, en.id as normalized_event_id, en.client_id, en.opportunity_id,
+         en.event_code, en.source_system, en.created_at as event_created_at,
+         row_number() over (partition by co.normalized_event_id, co.platform
+                            order by co.created_at, co.id) as duplicate_number,
+         count(*) over (partition by co.normalized_event_id, co.platform) as duplicate_count,
+         count(*) over (partition by en.event_code, co.platform) as pair_outbox_rows,
+         coalesce(ec.eligible_events, 0)::bigint as pair_eligible_events
+  from public.conversion_outbox co
+  left join public.events_normalized en on en.id = co.normalized_event_id
+  left join event_counts ec on ec.event_code = en.event_code
+  cross join params p
+  where co.created_at >= p.start_at and co.created_at < p.end_at
+), classified as (
+  select ow.*,
+    case
+      when ow.normalized_event_id is null then 'orphaned_outbox'
+      when ow.event_code not in (select event_code from allowed_events) then 'unsupported_event_code'
+      when ow.platform not in (select platform from supported_platforms) then 'unsupported_platform'
+      when ow.event_code in ('primeira_conversa', 'perdido') then 'ineligible_event_code'
+      when ow.duplicate_count > 1 and ow.duplicate_number > 1 then 'duplicate'
+      when ow.pair_outbox_rows > ow.pair_eligible_events then 'surplus'
+      else 'eligible_match'
+    end as row_category
+  from outbox_window ow
+), expected as (
+  select ae.event_code, sp.platform, ae.eligible,
+         count(eiw.id)::bigint as eligible_events
+  from allowed_events ae
+  cross join supported_platforms sp
+  left join events_in_window eiw on eiw.event_code = ae.event_code
+  group by ae.event_code, sp.platform, ae.eligible
+), expected_report as (
+  select 'expected_pair' as report_type, e.event_code, e.platform,
+         0::bigint as outbox_rows, e.eligible_events,
+         case when e.eligible then e.eligible_events else 0 end as expected_outbox_rows,
+         case when e.eligible then 0 else 0 end::bigint as ineligible_zero_outbox
+  from expected e
+), row_report as (
+  select 'outbox_row' as report_type, c.event_code, c.platform,
+         count(*)::bigint as outbox_rows, null::bigint as eligible_events,
+         null::bigint as expected_outbox_rows, null::bigint as ineligible_zero_outbox
+  from classified c
+  group by c.event_code, c.platform
+)
+select * from expected_report
+union all
+select * from row_report
+order by report_type, event_code nulls first, platform nulls first;
 ```
 
-Faça a agregação numérica e a verificação de sobreposição entre `ghl` e
-`impuls_crm`:
+The `expected_pair` rows for `primeira_conversa` and `perdido` must report
+`expected_outbox_rows = 0` and the matching `outbox_row` count must be zero.
+Rows with `row_category` are retained in the detailed report below, including
+zero-count category rows, so unsupported platforms, duplicates, surplus rows
+and orphans cannot be hidden by an inner join:
 
 ```sql
-with pairs as (
-  select en.event_code, co.platform,
-         count(*) as outbox_rows,
-         count(*) filter (where co.status='sent') as sent_rows,
-         count(*) filter (where co.status='failed') as failed_rows,
-         count(*) filter (where co.status='sent' and co.sent_at is null) as sent_without_sent_at,
-         count(*) filter (where co.status='sent' and co.external_job_id is null
-                                      and co.external_request_id is null) as sent_without_external_id,
-         count(*) filter (where co.status='sent' and co.response is null) as sent_without_response
+with categories(category) as (
+  values ('orphaned_outbox'), ('ineligible_event_code'),
+         ('unsupported_platform'), ('duplicate'), ('surplus'),
+         ('unsupported_event_code'), ('eligible_match')
+), classified as (
+  select co.id as outbox_id, en.id as normalized_event_id, en.client_id,
+         en.opportunity_id, en.event_code, co.platform, co.status, co.sent_at,
+         co.external_job_id, co.external_request_id, co.http_status,
+         co.response, co.last_error,
+         case
+           when en.id is null then 'orphaned_outbox'
+           when co.platform not in ('meta', 'google_ads') then 'unsupported_platform'
+           when en.event_code in ('primeira_conversa', 'perdido') then 'ineligible_event_code'
+           when count(*) over (partition by co.normalized_event_id, co.platform) > 1 then 'duplicate'
+           when en.event_code not in ('lead', 'agendado', 'ganho') then 'unsupported_event_code'
+           else 'eligible_match'
+         end as category
   from public.conversion_outbox co
-  join public.events_normalized en on en.id=co.normalized_event_id
-  where en.client_id='<client_id>'::uuid
+  left join public.events_normalized en on en.id = co.normalized_event_id
+  where co.created_at >= '<janela_inicio>'::timestamptz
+    and co.created_at < '<janela_fim>'::timestamptz
+)
+select c.category, count(x.outbox_id)::bigint as outbox_rows,
+       count(x.outbox_id) filter (where x.status = 'failed')::bigint as failed_rows,
+       count(x.outbox_id) filter (where x.status = 'sent' and x.sent_at is null)::bigint as sent_without_sent_at,
+       count(x.outbox_id) filter (where x.status = 'sent' and x.external_job_id is null and x.external_request_id is null)::bigint as sent_without_external_id,
+       count(x.outbox_id) filter (where x.status = 'sent' and x.response is null)::bigint as sent_without_response
+from categories c
+left join classified x on x.category = c.category
+group by c.category
+order by c.category;
+```
+
+Verifique também a sobreposição de fontes sem perder linhas órfãs do relatório
+principal:
+
+```sql
+select opportunity_id, event_code,
+       count(distinct source_system)::bigint as source_count,
+       count(*)::bigint as normalized_rows
+from public.events_normalized
+where client_id = '<client_id>'::uuid
+  and created_at >= '<janela_inicio>'::timestamptz
+  and created_at < '<janela_fim>'::timestamptz
+  and source_system in ('ghl', 'impuls_crm')
+group by opportunity_id, event_code
+having count(distinct source_system) > 1 or count(*) > 1;
+```
+
+Qualquer linha retornada é `source_overlap` e bloqueia a expansão até ser
+explicada. Essa consulta é complementar: não substitui o `left join` sobre a
+janela de outbox.
+
+For the target client, additionally run the following numeric assertion. It
+uses the complete eligible set and fails closed if any expected pair is missing,
+has a duplicate, or has surplus rows; it also reports all invalid categories.
+
+```sql
+with expected as (
+  select en.event_code, p.platform, count(*)::bigint as expected_rows
+  from public.events_normalized en
+  cross join (values ('meta'::text), ('google_ads'::text)) p(platform)
+  where en.client_id = '<client_id>'::uuid
+    and en.source_system = 'impuls_crm'
+    and en.event_code in ('lead', 'agendado', 'ganho')
     and en.created_at >= '<janela_inicio>'::timestamptz
     and en.created_at < '<janela_fim>'::timestamptz
+  group by en.event_code, p.platform
+), actual as (
+  select en.event_code, co.platform, count(*)::bigint as actual_rows
+  from public.conversion_outbox co
+  left join public.events_normalized en on en.id = co.normalized_event_id
+  where en.client_id = '<client_id>'::uuid
+    and co.created_at >= '<janela_inicio>'::timestamptz
+    and co.created_at < '<janela_fim>'::timestamptz
   group by en.event_code, co.platform
-), overlap as (
-  select opportunity_id, event_code,
-         count(distinct source_system) as source_count,
-         count(*) as normalized_rows
-  from public.events_normalized
-  where client_id='<client_id>'::uuid
-    and created_at >= '<janela_inicio>'::timestamptz
-    and created_at < '<janela_fim>'::timestamptz
-    and source_system in ('ghl','impuls_crm')
-  group by opportunity_id, event_code
 )
-select 'pair' as check_type, event_code, platform,
-       outbox_rows, sent_rows, failed_rows, sent_without_sent_at,
-       sent_without_external_id, sent_without_response
-from pairs
+select e.event_code, e.platform, e.expected_rows, coalesce(a.actual_rows, 0) as actual_rows,
+       coalesce(a.actual_rows, 0) - e.expected_rows as delta,
+       (coalesce(a.actual_rows, 0) = e.expected_rows) as exact_match
+from expected e left join actual a using (event_code, platform)
 union all
-select 'source_overlap', event_code, null,
-       count(*) filter (where source_count > 1),
-       count(*) filter (where normalized_rows > 1), 0, 0, 0, 0
-from overlap
-group by event_code;
+select 'unexpected'::text, a.platform, 0, a.actual_rows, a.actual_rows, false
+from actual a left join expected e using (event_code, platform)
+where e.event_code is null or a.actual_rows > e.expected_rows;
 ```
 
-`failed_rows`, `sent_without_sent_at`, `sent_without_external_id` e
-`sent_without_response` devem ser zero para declarar sucesso; qualquer
-`source_overlap` deve ser listado e explicado. `response` é evidência da
-plataforma, não um booleano inferido de `status`. Preserve o relatório e
-registre uma auditoria operacional de reconciliação; não apague nem reenvie
-linhas para "consertar" a contagem.
+Every `exact_match` must be true and the final query must return no
+`unexpected` row. `failed_rows`, `sent_without_sent_at`,
+`sent_without_external_id` and `sent_without_response` must be zero; preserve
+the report and record source overlap between `ghl` and `impuls_crm`. `response`
+is platform evidence, not a boolean inferred from `status`. Never delete or
+resend rows to "fix" a count.
 
 ## 6. Checklist de expansão
 
