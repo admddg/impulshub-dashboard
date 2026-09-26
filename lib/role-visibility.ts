@@ -4,12 +4,11 @@ const PAPEIS_DE_GESTAO = new Set<PapelCliente>([
   'owner',
   'admin',
   'manager',
-  'viewer',
 ])
 
 const PAPEIS_COM_ACESSO_TOTAL = new Set<PapelCliente>(['agency'])
 
-const ABAS_DO_ATENDENTE = new Set(['funnel', 'channels'])
+const ABAS_DO_ATENDENTE = new Set(['crm', 'funnel', 'channels'])
 
 export function tabsVisiveisParaPapel<T extends string>(
   papel: string | null,
@@ -20,11 +19,15 @@ export function tabsVisiveisParaPapel<T extends string>(
   }
 
   if (papel && PAPEIS_DE_GESTAO.has(papel as PapelCliente)) {
-    return tabs.filter((tab) => tab !== 'crm')
+    return [...tabs]
   }
 
   if (papel === 'attendant') {
     return tabs.filter((tab) => ABAS_DO_ATENDENTE.has(tab))
+  }
+
+  if (papel === 'viewer') {
+    return tabs.filter((tab) => tab !== 'crm')
   }
 
   return []

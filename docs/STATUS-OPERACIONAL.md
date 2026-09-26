@@ -43,6 +43,7 @@ seguem fora desta frente.
 | Parser | Tie fix de `stage_history` aplicado | PR #26 e runbook `docs/incidentes/RUNBOOK-PRODUCAO-17TPEPCDUFJ.md` |
 | Parser cron | Ativo; últimas execuções observadas como `succeeded` | leitura operacional somente leitura em 25/09/2026 |
 | Raw elegível Impuls | **0** mensagens elegíveis | leitura operacional somente leitura em 25/09/2026 |
+| Acesso CRM | Clientes novos: `manager` vê abas operacionais + CRM; `attendant` vê CRM/Funnel/Channels; `viewer` legado continua sem CRM | `lib/role-visibility.ts` e testes |
 | IMP-215 | Allowlist contém somente `3ec294db-a64a-4420-9b4a-0d917f65d399`; ciclo 17057 sem candidatos | GET/readback n8n e execução 17057 |
 
 Não foram limpos dados históricos e não foram alteradas flags de produção fora
